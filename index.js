@@ -4,12 +4,13 @@
  * @param {Object} req Cloud Function request context.
  * @param {Object} res Cloud Function response context.
  */
-exports.telegramBot = (req, res) => {
-    // Отсекаем все, кроме POST-запросов
-    if (req.method !== 'POST') {
-        return res.status(405).send('Method Not Allowed');
-    }
+const express = require('express');
+const app = express();
 
+app.use(express.json());
+
+// Telegram webhook handler
+app.post('/', (req, res) => {
     const update = req.body;
     // Логируем входящий объект для отладки в Google Cloud Logs
     console.log('Получено обновление:', JSON.stringify(update));
@@ -30,4 +31,15 @@ exports.telegramBot = (req, res) => {
     };
 
     res.status(200).json(replyPayload);
-};
+});
+
+// Обработчик для health check
+app.get('/', (req, res) => {
+    res.status(200).send('OK');
+});
+
+// Запуск сервера на порту 8080
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+    console.log(`Telegram bot server запущен на порту ${PORT}`);
+});
