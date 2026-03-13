@@ -5,7 +5,7 @@ const { COMMANDS } = require('../constants');
 
 const MAX_NAME_LENGTH = 13;
 
-function formatStatsMessage(leaderboard) {
+function formatStatsMessage(leaderboard, requestedMatchesCount) {
     if (!leaderboard || leaderboard.length === 0) {
         return 'Failed to retrieve stats for any player.';
     }
@@ -13,21 +13,24 @@ function formatStatsMessage(leaderboard) {
     // specific column widths
     const KD_WIDTH = 4;
     const ADR_WIDTH = 6;
+    const MATCHES_WIDTH = 3;
 
     // Calculate dynamic name width based on longest name in the list, capped at MAX_NAME_LENGTH
     const longestName = leaderboard.reduce((max, player) => Math.max(max, player.nickname.length), 0);
     const nameColWidth = Math.max(4, Math.min(longestName, MAX_NAME_LENGTH)); // At least 4 chars for "Name" header
 
-    let message = '📊 *FACEIT Last 10 Matches Stats*\n\n';
+    const titleCount = requestedMatchesCount || leaderboard[0].matchesAnalyzed || 10;
+    let message = `📊 *FACEIT Last ${titleCount} Matches Stats*\n\n`;
     message += '```\n';
     
     // Header
     const nameHeader = 'Name'.padEnd(nameColWidth, ' ');
-    const kdHeader = 'K/D'.padStart(KD_WIDTH, ' ');
     const adrHeader = 'ADR'.padStart(ADR_WIDTH, ' ');
+    const kdHeader = 'K/D'.padStart(KD_WIDTH, ' ');
+    const matchesHeader = '#'.padStart(MATCHES_WIDTH, ' ');
 
-    message += `${nameHeader} | ${kdHeader} | ${adrHeader}\n`;
-    message += `${'-'.repeat(nameColWidth)} | ${'-'.repeat(KD_WIDTH)} | ${'-'.repeat(ADR_WIDTH)}\n`;
+    message += `${nameHeader} | ${adrHeader} | ${kdHeader} | ${matchesHeader}\n`;
+    message += `${'-'.repeat(nameColWidth)} | ${'-'.repeat(ADR_WIDTH)} | ${'-'.repeat(KD_WIDTH)} | ${'-'.repeat(MATCHES_WIDTH)}\n`;
 
     leaderboard.forEach(player => {
         // Truncate name if too long to maintain table structure
@@ -39,27 +42,44 @@ function formatStatsMessage(leaderboard) {
         // Format stats
         const kd = player.kills_deaths_ratio.toString().padStart(KD_WIDTH, ' ');
         const adr = player.average_damage_per_round.toString().padStart(ADR_WIDTH, ' ');
+        const matches = (player.matchesAnalyzed || 0).toString().padStart(MATCHES_WIDTH, ' ');
         
-        message += `${name} | ${kd} | ${adr}\n`;
+        message += `${name} | ${adr} | ${kd} | ${matches}\n`;
     });
     message += '```';
 
     return message;
 }
 
-async function handleStats(chatId, apiKey) {
+async function handleStats(chatId, args, apiKey) {
     const players = await storageService.getPlayers(chatId);
 
     if (players.length === 0) {
         return `⚠️ No players tracked in this chat. Use \`${COMMANDS.ADD_PLAYER} <nickname>\` to start.`;
-    } else {
-        const leaderboard = await getLeaderboardStats(
-            apiKey,
-            players,
-            config.last_matches
-        );
-        return formatStatsMessage(leaderboard);
     }
+
+    let matchesCount = config.last_matches || 10;
+    if (args.length > 0) {
+        const parsedCount = parseInt(args[0], 10);
+        if (!isNaN(parsedCount) && parsedCount >= 2 && parsedCount <= 90) {
+            matchesCount = parsedCount;
+        }
+    }
+
+    const leaderboard = await getLeaderboardStats(
+        apiKey,
+        players,
+        matchesCount
+        );
+    return formatStatsMessage(leaderboard, matchesCount);
+}
+
+async function handlePlayers(chatId) {
+    const players = await storageService.getPlayers(chatId);
+    if (players.length === 0) {
+        return `⚠️ No players tracked in this chat. Use \`${COMMANDS.ADD_PLAYER} <nickname>\` to start.`;
+    }
+    return `📋 *Tracked Players:*\n\n` + players.map(p => `• \`${p}\``).join('\n');
 }
 
 async function handleAddPlayer(chatId, args, apiKey) {
@@ -90,20 +110,23 @@ async function handleRemovePlayer(chatId, args) {
 
 function handleHelp() {
     return '🤖 *Bot Commands:*\n\n' +
-        `• \`${COMMANDS.STATS}\` - Get stats for the last 10 matches for all tracked players.\n` +
+        `• \`${COMMANDS.STATS} [matches]\` - Get stats for the last N matches (default 10, range 2-90).\n` +
         `• \`${COMMANDS.ADD_PLAYER} <nickname>\` - Add a player to the tracking list.\n` +
         `• \`${COMMANDS.REMOVE_PLAYER} <nickname>\` - Remove a player from the tracking list.\n` +
+        `• \`${COMMANDS.PLAYERS}\` - List all tracked players in this chat.\n` +
         `• \`${COMMANDS.HELP}\` - Show this help message.`;
 }
 
 async function handleCommand(command, chatId, args, apiKey) {
     switch (command) {
         case COMMANDS.STATS:
-            return handleStats(chatId, apiKey);
+            return handleStats(chatId, args, apiKey);
         case COMMANDS.ADD_PLAYER:
             return handleAddPlayer(chatId, args, apiKey);
         case COMMANDS.REMOVE_PLAYER:
             return handleRemovePlayer(chatId, args);
+        case COMMANDS.PLAYERS:
+            return handlePlayers(chatId);
         case COMMANDS.HELP:
             return handleHelp();
         default:
