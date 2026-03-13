@@ -28,7 +28,7 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
     const nameHeader = 'Name'.padEnd(nameColWidth, ' ');
     const adrHeader = 'ADR'.padStart(ADR_WIDTH, ' ');
     const kdHeader = 'K/D'.padStart(KD_WIDTH, ' ');
-    const avgKHeader = 'AvgK'.padStart(AVGK_WIDTH, ' ');
+    const avgKHeader = 'Kills'.padStart(AVGK_WIDTH, ' ');
     const matchesHeader = '#'.padStart(MATCHES_WIDTH, ' ');
 
     message += `${nameHeader} | ${adrHeader} | ${kdHeader} | ${avgKHeader} | ${matchesHeader}\n`;
@@ -64,7 +64,7 @@ async function handleStats(chatId, args, apiKey) {
     let matchesCount = config.last_matches || 10;
     if (args.length > 0) {
         const parsedCount = parseInt(args[0], 10);
-        if (!isNaN(parsedCount) && parsedCount >= 2 && parsedCount <= 90) {
+        if (!isNaN(parsedCount) && parsedCount >= 2 && parsedCount <= 30) {
             matchesCount = parsedCount;
         }
     }
