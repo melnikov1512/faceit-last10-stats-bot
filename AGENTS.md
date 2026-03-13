@@ -26,7 +26,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **Schema**: Collection `chats`, Document ID = `chatId`.
     - **Structure**: `{ players: ["nickname1", "nickname2"] }`.
     - **Requirement**: Firestore database must be created in **Native Mode**.
-- **Command Logic**: `src/handlers/commandHandler.js`. Handles `/stats`, `/add_player`, `/remove_player`, `/help`.
+- **Command Logic**: `src/handlers/commandHandler.js`. Handles `/stats`, `/add_player`, `/remove_player`, `/players`, `/help`.
     - **Constants**: Command strings defined in `src/constants.js`.
 
 ## Developer Workflows
@@ -66,3 +66,4 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/config.js`: Configuration loader.
 - `src/constants.js`: Bot command definitions.
 - `config.json`: Master configuration file.
+- `ai-implementation-plans/`: Directory for AI-generated implementation plans.

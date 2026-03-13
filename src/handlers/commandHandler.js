@@ -13,6 +13,7 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
     // specific column widths
     const KD_WIDTH = 4;
     const ADR_WIDTH = 6;
+    const AVGK_WIDTH = 5;
     const MATCHES_WIDTH = 3;
 
     // Calculate dynamic name width based on longest name in the list, capped at MAX_NAME_LENGTH
@@ -27,10 +28,11 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
     const nameHeader = 'Name'.padEnd(nameColWidth, ' ');
     const adrHeader = 'ADR'.padStart(ADR_WIDTH, ' ');
     const kdHeader = 'K/D'.padStart(KD_WIDTH, ' ');
+    const avgKHeader = 'AvgK'.padStart(AVGK_WIDTH, ' ');
     const matchesHeader = '#'.padStart(MATCHES_WIDTH, ' ');
 
-    message += `${nameHeader} | ${adrHeader} | ${kdHeader} | ${matchesHeader}\n`;
-    message += `${'-'.repeat(nameColWidth)} | ${'-'.repeat(ADR_WIDTH)} | ${'-'.repeat(KD_WIDTH)} | ${'-'.repeat(MATCHES_WIDTH)}\n`;
+    message += `${nameHeader} | ${adrHeader} | ${kdHeader} | ${avgKHeader} | ${matchesHeader}\n`;
+    message += `${'-'.repeat(nameColWidth)} | ${'-'.repeat(ADR_WIDTH)} | ${'-'.repeat(KD_WIDTH)} | ${'-'.repeat(AVGK_WIDTH)} | ${'-'.repeat(MATCHES_WIDTH)}\n`;
 
     leaderboard.forEach(player => {
         // Truncate name if too long to maintain table structure
@@ -42,9 +44,10 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
         // Format stats
         const kd = player.kills_deaths_ratio.toString().padStart(KD_WIDTH, ' ');
         const adr = player.average_damage_per_round.toString().padStart(ADR_WIDTH, ' ');
+        const avgK = player.average_kills.toString().padStart(AVGK_WIDTH, ' ');
         const matches = (player.matchesAnalyzed || 0).toString().padStart(MATCHES_WIDTH, ' ');
         
-        message += `${name} | ${adr} | ${kd} | ${matches}\n`;
+        message += `${name} | ${adr} | ${kd} | ${avgK} | ${matches}\n`;
     });
     message += '```';
 

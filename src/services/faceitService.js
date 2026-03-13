@@ -139,16 +139,47 @@ async function getPlayerStats(apiClient, nickname, matchesCount) {
 
         const playerId = playerInfo.player_id;
         
-        // Get last matches
-        const matchesData = await getPlayerMatches(apiClient, playerId, matchesCount);
-        if (!matchesData || !matchesData.items || matchesData.items.length === 0) {
+        // Get last matches, filtering out cancelled ones
+        const validMatches = [];
+        let offset = 0;
+        
+        // Fetch matches until we have enough valid ones
+        while (validMatches.length < matchesCount) {
+            // Fetch a bit more than needed to cover potential cancelled matches
+            const needed = matchesCount - validMatches.length;
+            const limit = needed + 5; 
+            
+            const matchesData = await getPlayerMatches(apiClient, playerId, limit, offset);
+            
+            if (!matchesData || !matchesData.items || matchesData.items.length === 0) {
+                break; // No more matches history
+            }
+
+            for (const match of matchesData.items) {
+                if (match.status !== 'CANCELLED') {
+                    validMatches.push(match);
+                }
+                
+                if (validMatches.length >= matchesCount) {
+                    break;
+                }
+            }
+            
+            offset += matchesData.items.length;
+
+            if (matchesData.items.length < limit) {
+                break; // End of list
+            }
+        }
+
+        if (validMatches.length === 0) {
             return null;
         }
 
         // Collect stats from all matches with concurrency limit
         // Limit to 5 concurrent match stats requests per player to respect rate limits
         const matchStatsResults = await processInChunks(
-            matchesData.items, 
+            validMatches, 
             5, 
             match => getMatchStats(apiClient, match.match_id, playerId)
         );
