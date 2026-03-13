@@ -113,7 +113,7 @@ async function handleRemovePlayer(chatId, args) {
 
 function handleHelp() {
     return '🤖 *Bot Commands:*\n\n' +
-        `• \`${COMMANDS.STATS} [matches]\` - Get stats for the last N matches (default 10, range 2-90).\n` +
+        `• \`${COMMANDS.STATS} [matches]\` - Get stats for the last N matches (default 10, range 2-100).\n` +
         `• \`${COMMANDS.ADD_PLAYER} <nickname>\` - Add a player to the tracking list.\n` +
         `• \`${COMMANDS.REMOVE_PLAYER} <nickname>\` - Remove a player from the tracking list.\n` +
         `• \`${COMMANDS.PLAYERS}\` - List all tracked players in this chat.\n` +
