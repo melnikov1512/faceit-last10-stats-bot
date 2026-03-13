@@ -3,30 +3,44 @@ const config = require('../config');
 const storageService = require('../services/storageService');
 const { COMMANDS } = require('../constants');
 
-const MAX_NAME_LENGTH = 20;
+const MAX_NAME_LENGTH = 13;
 
 function formatStatsMessage(leaderboard) {
     if (!leaderboard || leaderboard.length === 0) {
         return 'Failed to retrieve stats for any player.';
     }
 
+    // specific column widths
+    const KD_WIDTH = 4;
+    const ADR_WIDTH = 6;
+
+    // Calculate dynamic name width based on longest name in the list, capped at MAX_NAME_LENGTH
+    const longestName = leaderboard.reduce((max, player) => Math.max(max, player.nickname.length), 0);
+    const nameColWidth = Math.max(4, Math.min(longestName, MAX_NAME_LENGTH)); // At least 4 chars for "Name" header
+
     let message = '📊 *FACEIT Last 10 Matches Stats*\n\n';
     message += '```\n';
+    
     // Header
-    const nameHeader = 'Name'.padEnd(MAX_NAME_LENGTH, ' ');
-    message += `${nameHeader} | ADR    | K/D    | Avg K\n`;
-    message += `${'-'.repeat(MAX_NAME_LENGTH)} |--------|--------|------\n`;
+    const nameHeader = 'Name'.padEnd(nameColWidth, ' ');
+    const kdHeader = 'K/D'.padStart(KD_WIDTH, ' ');
+    const adrHeader = 'ADR'.padStart(ADR_WIDTH, ' ');
+
+    message += `${nameHeader} | ${kdHeader} | ${adrHeader}\n`;
+    message += `${'-'.repeat(nameColWidth)} | ${'-'.repeat(KD_WIDTH)} | ${'-'.repeat(ADR_WIDTH)}\n`;
 
     leaderboard.forEach(player => {
         // Truncate name if too long to maintain table structure
         let name = player.nickname;
-        if (name.length > MAX_NAME_LENGTH) name = name.substring(0, MAX_NAME_LENGTH);
+        if (name.length > nameColWidth) name = name.substring(0, nameColWidth);
         
-        name = name.padEnd(MAX_NAME_LENGTH, ' ');
-        const adr = player.average_damage_per_round.toString().padStart(6, ' ');
-        const kd = player.kills_deaths_ratio.toString().padStart(6, ' ');
-        const kills = player.average_kills.toString().padStart(5, ' ');
-        message += `${name} | ${adr} | ${kd} | ${kills}\n`;
+        name = name.padEnd(nameColWidth, ' ');
+        
+        // Format stats
+        const kd = player.kills_deaths_ratio.toString().padStart(KD_WIDTH, ' ');
+        const adr = player.average_damage_per_round.toString().padStart(ADR_WIDTH, ' ');
+        
+        message += `${name} | ${kd} | ${adr}\n`;
     });
     message += '```';
 
