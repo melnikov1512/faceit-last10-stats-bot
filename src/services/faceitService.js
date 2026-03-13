@@ -182,9 +182,9 @@ async function getLeaderboardStats(apiKey, players, limit = 10) {
         throw new Error('API Key is required');
     }
 
-    const apiClient = createApiClient(apiKey);
-
     // Process players with concurrency limit
+    const apiClient = createApiClient(apiKey);
+    
     // Process 3 players at a time to keep total concurrent requests manageable (3 * 5 = 15 max)
     const results = await processInChunks(
         players,
@@ -199,6 +199,20 @@ async function getLeaderboardStats(apiKey, players, limit = 10) {
     return leaderboard.sort((a, b) => b.average_damage_per_round - a.average_damage_per_round);
 }
 
+/**
+ * Validate if a player exists on FACEIT
+ * @param {string} apiKey 
+ * @param {string} nickname 
+ * @returns {Promise<boolean>}
+ */
+async function validatePlayer(apiKey, nickname) {
+    if (!apiKey) return false;
+    const apiClient = createApiClient(apiKey);
+    const info = await getPlayerInfo(apiClient, nickname);
+    return !!info;
+}
+
 module.exports = {
-    getLeaderboardStats
+    getLeaderboardStats,
+    validatePlayer
 };
