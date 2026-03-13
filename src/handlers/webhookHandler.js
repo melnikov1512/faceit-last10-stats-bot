@@ -55,11 +55,14 @@ async function handleWebhook(req, res) {
         res.json(replyPayload);
     } catch (error) {
         console.error(`Error processing ${command}:`, error);
+        if (error.stack) {
+             console.error(error.stack);
+        }
 
         const replyPayload = {
             method: 'sendMessage',
             chat_id: chatId,
-            text: `⚠️ Error processing request. Please try again later.`
+            text: `⚠️ Error processing request: ${error.message || 'Please try again later.'}`
         };
         res.json(replyPayload);
     }

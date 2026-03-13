@@ -21,11 +21,13 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     ```
 - **Stats Module**: `src/services/faceitService.js`. Calculates average stats (ADR, K/D) from the last N matches.
     - **Faceit API**: Uses v4 `/players` and `/matches` endpoints.
-    - **Batching**: Processes player lookups in chunks to respect API limits.
+    - **Batching**: Processes player lookups in chunks to respect API limits (3 players concurrent, 5 matches concurrent).
 - **Storage Module**: `src/services/storageService.js`. Manages per-chat player lists using Firestore.
     - **Schema**: Collection `chats`, Document ID = `chatId`.
     - **Structure**: `{ players: ["nickname1", "nickname2"] }`.
+    - **Requirement**: Firestore database must be created in **Native Mode**.
 - **Command Logic**: `src/handlers/commandHandler.js`. Handles `/stats`, `/add_player`, `/remove_player`, `/help`.
+    - **Constants**: Command strings defined in `src/constants.js`.
 
 ## Developer Workflows
 - **Local Development**: 
@@ -40,6 +42,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **HTTP Client**: Axios (for FACEIT API requests).
     - **Database**: Google Cloud Firestore (for per-chat persistence).
     - **Configuration**: `dotenv` (for local secrets management).
+    - **Constants**: `src/constants.js` defines command strings and fixed values.
 - **Configuration**:
   - `config.json` in root directory.
   - `src/config.js` consolidates env vars and `config.json`.
@@ -61,4 +64,5 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/services/faceitService.js`: CS2 stats logic.
 - `src/services/storageService.js`: Firestore database operations.
 - `src/config.js`: Configuration loader.
+- `src/constants.js`: Bot command definitions.
 - `config.json`: Master configuration file.

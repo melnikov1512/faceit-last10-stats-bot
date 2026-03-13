@@ -3,5 +3,6 @@ const config = require('../config.json');
 
 module.exports = {
   ...config,
-  faceit_api_key: process.env.FACEIT_API_KEY || config.faceit_api_key
+  faceit_api_key: process.env.FACEIT_API_KEY || config.faceit_api_key,
+  projectId: process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT
 };
