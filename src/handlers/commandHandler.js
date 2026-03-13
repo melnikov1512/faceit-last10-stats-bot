@@ -64,7 +64,7 @@ async function handleStats(chatId, args, apiKey) {
     let matchesCount = config.last_matches || 10;
     if (args.length > 0) {
         const parsedCount = parseInt(args[0], 10);
-        if (!isNaN(parsedCount) && parsedCount >= 2 && parsedCount <= 30) {
+        if (!isNaN(parsedCount) && parsedCount >= 2 && parsedCount <= 100) {
             matchesCount = parsedCount;
         }
     }

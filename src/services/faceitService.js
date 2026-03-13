@@ -150,10 +150,10 @@ async function getLeaderboardStats(apiKey, players, limit = 10) {
     // Process players with concurrency limit
     const apiClient = createApiClient(apiKey);
     
-    // Process 3 players at a time to keep total concurrent requests manageable (3 * 5 = 15 max)
+    // Process 10 players at a time to keep total concurrent requests manageable
     const results = await processInChunks(
         players,
-        3,
+        10,
         username => getPlayerStats(apiClient, username, limit)
     );
     
