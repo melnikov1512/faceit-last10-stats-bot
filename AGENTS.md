@@ -20,19 +20,21 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     res.json(replyPayload);
     ```
 - **Stats Module**: `src/services/faceitService.js`. Calculates average stats (ADR, K/D) from the last N matches.
-    - **Faceit API**: Uses v4 `/players` and `/matches` endpoints.
-    - **Batching**: Processes player lookups in chunks to respect API limits (3 players concurrent, 5 matches concurrent).
+    - **Faceit API**: Uses v4 `/players` and `/players/{id}/games/{game}/stats` endpoints.
+    - **Batching**: Processes player lookups in chunks to respect API limits (3 players concurrent). Fetches stats for all requested matches in a single call per player.
 - **Storage Module**: `src/services/storageService.js`. Manages per-chat player lists using Firestore.
     - **Schema**: Collection `chats`, Document ID = `chatId`.
     - **Structure**: `{ players: ["nickname1", "nickname2"] }`.
     - **Requirement**: Firestore database must be created in **Native Mode**.
-- **Command Logic**: `src/handlers/commandHandler.js`. Handles `/stats`, `/add_player`, `/remove_player`, `/players`, `/help`.
+- **Command Logic**: `src/handlers/commandHandler.js`. Handles `/stats [N]`, `/add_player`, `/remove_player`, `/players`, `/help`.
+    - **Arguments**: `/stats` accepts an optional count `N` (2-30, default 10).
     - **Constants**: Command strings defined in `src/constants.js`.
 
 ## Developer Workflows
 - **Local Development**: 
     1. Create `.env` with `FACEIT_API_KEY=...` and `GOOGLE_APPLICATION_CREDENTIALS=...` (if needed for Firestore).
-    2. Run `node index.js`. The server listens on `PORT` (default 8080).
+    2. Ensure `GCLOUD_PROJECT` or `GOOGLE_CLOUD_PROJECT` is set in `.env` for Firestore context.
+    3. Run `node index.js`. The server listens on `PORT` (default 8080).
 - **Request Handling**:
   - `POST /`: Handles Telegram updates (routed to `src/handlers/webhookHandler.js`).
   - `GET /`: Health check (returns 200 OK).
@@ -45,6 +47,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **Constants**: `src/constants.js` defines command strings and fixed values.
 - **Configuration**:
   - `config.json` in root directory.
+    - Note: The `users` array is legacy and ignored by bot commands; use `/add_player`.
   - `src/config.js` consolidates env vars and `config.json`.
   - **Security**: 
     - Use `.env` file for local `FACEIT_API_KEY`.

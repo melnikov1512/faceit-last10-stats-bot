@@ -50,46 +50,17 @@ async function getPlayerInfo(apiClient, nickname) {
 }
 
 /**
- * Get user matches
+ * Get player stats for a game (CS2)
+ * This endpoint returns the last N matches with stats directly.
  */
-async function getPlayerMatches(apiClient, playerId, limit = 10) {
+async function getPlayerGameStats(apiClient, playerId, limit = 10) {
     try {
-        const response = await apiClient.get(`/players/${playerId}/history?game=${GAME}&limit=${limit}`);
+        const response = await apiClient.get(`/players/${playerId}/games/${GAME}/stats`, {
+            params: { limit }
+        });
         return response.data;
     } catch (error) {
-        console.error(`Error fetching matches for player ${playerId}:`, error.message);
-        return null;
-    }
-}
-
-/**
- * Get match stats for player
- */
-async function getMatchStats(apiClient, matchId, playerId) {
-    try {
-        const response = await apiClient.get(`/matches/${matchId}/stats?game=${GAME}`);
-
-        // Find specific player stats in the match
-        if (response.data && response.data.rounds) {
-            for (const round of response.data.rounds) {
-                for (const team of [round.teams[0], round.teams[1]]) {
-                    if (team) {
-                        const player = team.players.find(p => p.player_id === playerId);
-                        if (player) {
-                            // Extract only what we need
-                            return {
-                                Kills: player.player_stats.Kills,
-                                Deaths: player.player_stats.Deaths,
-                                ADR: player.player_stats.ADR
-                            };
-                        }
-                    }
-                }
-            }
-        }
-        return null;
-    } catch (error) {
-        console.error(`Error fetching stats for match ${matchId}:`, error.message);
+        console.error(`Error fetching game stats for player ${playerId}:`, error.message);
         return null;
     }
 }
@@ -139,52 +110,15 @@ async function getPlayerStats(apiClient, nickname, matchesCount) {
 
         const playerId = playerInfo.player_id;
         
-        // Get last matches, filtering out cancelled ones
-        const validMatches = [];
-        let offset = 0;
+        // Fetch last N matches stats directly using the optimized endpoint
+        const statsData = await getPlayerGameStats(apiClient, playerId, matchesCount);
         
-        // Fetch matches until we have enough valid ones
-        while (validMatches.length < matchesCount) {
-            // Fetch a bit more than needed to cover potential cancelled matches
-            const needed = matchesCount - validMatches.length;
-            const limit = needed + 5; 
-            
-            const matchesData = await getPlayerMatches(apiClient, playerId, limit, offset);
-            
-            if (!matchesData || !matchesData.items || matchesData.items.length === 0) {
-                break; // No more matches history
-            }
-
-            for (const match of matchesData.items) {
-                if (match.status !== 'CANCELLED') {
-                    validMatches.push(match);
-                }
-                
-                if (validMatches.length >= matchesCount) {
-                    break;
-                }
-            }
-            
-            offset += matchesData.items.length;
-
-            if (matchesData.items.length < limit) {
-                break; // End of list
-            }
-        }
-
-        if (validMatches.length === 0) {
+        if (!statsData || !statsData.items || statsData.items.length === 0) {
             return null;
         }
 
-        // Collect stats from all matches with concurrency limit
-        // Limit to 5 concurrent match stats requests per player to respect rate limits
-        const matchStatsResults = await processInChunks(
-            validMatches, 
-            5, 
-            match => getMatchStats(apiClient, match.match_id, playerId)
-        );
-
-        const allStats = matchStatsResults.filter(stats => stats !== null);
+        // Extract stats object from each item
+        const allStats = statsData.items.map(item => item.stats);
 
         if (allStats.length === 0) {
             return null;
