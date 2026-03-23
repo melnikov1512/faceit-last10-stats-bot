@@ -11,11 +11,12 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
     }
 
     // Column widths
-    // Row width (name=9): 9 + 3 + 4 + 3 + 4 + 3 + 4 + 3 + 4 = 37 chars
-    const KD_WIDTH   = 4;
-    const ADR_WIDTH  = 4;
-    const AVGK_WIDTH = 4;
-    const ELO_WIDTH  = 4;
+    // Row width (name=9): 9 + 3 + 4 + 3 + 4 + 3 + 4 + 3 + 4 + 3 + 4 = 44 chars
+    const KD_WIDTH      = 4;
+    const ADR_WIDTH     = 4;
+    const AVGK_WIDTH    = 4;
+    const ELO_WIDTH     = 4;
+    const ELO_CHG_WIDTH = 4; // "+999" / "-115" cover normal range for N matches
 
     // Dynamic name width capped at MAX_NAME_LENGTH (min 4 for "Name" header)
     const longestName  = leaderboard.reduce((max, p) => Math.max(max, p.nickname.length), 0);
@@ -26,14 +27,15 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
     message += '```\n';
 
     // Header row
-    const nameHeader = 'Name'.padEnd(nameColWidth, ' ');
-    const adrHeader  = 'ADR'.padStart(ADR_WIDTH, ' ');
-    const kdHeader   = 'K/D'.padStart(KD_WIDTH, ' ');
-    const avgKHeader = 'Kill'.padStart(AVGK_WIDTH, ' ');
-    const eloHeader  = 'ELO'.padStart(ELO_WIDTH, ' ');
+    const nameHeader   = 'Name'.padEnd(nameColWidth, ' ');
+    const adrHeader    = 'ADR'.padStart(ADR_WIDTH, ' ');
+    const kdHeader     = 'K/D'.padStart(KD_WIDTH, ' ');
+    const avgKHeader   = 'Kill'.padStart(AVGK_WIDTH, ' ');
+    const eloHeader    = 'ELO'.padStart(ELO_WIDTH, ' ');
+    const eloChgHeader = '±ELO'.padStart(ELO_CHG_WIDTH, ' ');
 
-    message += `${nameHeader} | ${adrHeader} | ${kdHeader} | ${avgKHeader} | ${eloHeader}\n`;
-    message += `${'-'.repeat(nameColWidth)} | ${'-'.repeat(ADR_WIDTH)} | ${'-'.repeat(KD_WIDTH)} | ${'-'.repeat(AVGK_WIDTH)} | ${'-'.repeat(ELO_WIDTH)}\n`;
+    message += `${nameHeader} | ${adrHeader} | ${kdHeader} | ${avgKHeader} | ${eloHeader} | ${eloChgHeader}\n`;
+    message += `${'-'.repeat(nameColWidth)} | ${'-'.repeat(ADR_WIDTH)} | ${'-'.repeat(KD_WIDTH)} | ${'-'.repeat(AVGK_WIDTH)} | ${'-'.repeat(ELO_WIDTH)} | ${'-'.repeat(ELO_CHG_WIDTH)}\n`;
 
     leaderboard.forEach(player => {
         let name = player.nickname;
@@ -48,7 +50,15 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
             ? player.current_elo.toString().padStart(ELO_WIDTH, ' ')
             : ' N/A';
 
-        message += `${name} | ${adr} | ${kd} | ${avgK} | ${eloVal}\n`;
+        let eloChgVal;
+        if (player.elo_change != null) {
+            const sign = player.elo_change >= 0 ? '+' : '';
+            eloChgVal = `${sign}${player.elo_change}`.padStart(ELO_CHG_WIDTH, ' ');
+        } else {
+            eloChgVal = ' N/A';
+        }
+
+        message += `${name} | ${adr} | ${kd} | ${avgK} | ${eloVal} | ${eloChgVal}\n`;
     });
     message += '```';
 

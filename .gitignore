@@ -137,4 +137,4 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 /package-lock.json
-/ai-implementation-plans/
+/ai-files/

@@ -1,7 +1,9 @@
 const axios = require('axios');
 
-const BASE_URL = 'https://open.faceit.com/data/v4';
-const GAME = 'cs2'; // Counter-Strike 2
+const BASE_URL       = 'https://open.faceit.com/data/v4';
+// Unofficial stats API — public endpoint, NO Authorization header allowed
+const STATS_BASE_URL = 'https://api.faceit.com/stats/v1';
+const GAME = 'cs2';
 
 /**
  * Helper to process items in chunks to avoid hitting API rate limits
@@ -66,6 +68,37 @@ async function getPlayerGameStats(apiClient, playerId, limit = 10) {
 }
 
 /**
+ * Fetch per-match ELO timeline from the unofficial FACEIT stats API.
+ *
+ * IMPORTANT: This endpoint is public and actively rejects Authorization /
+ * Accept headers — do NOT pass any custom headers.
+ *
+ * Returns newest-first array of match objects, each with an `elo` field
+ * representing the player's ELO after that match.
+ */
+async function getPlayerEloTimeline(playerId, limit) {
+    try {
+        const to   = Date.now();
+        const from = to - 2 * 365 * 24 * 60 * 60 * 1000; // 2 years back in ms
+
+        // Plain axios call — no baseURL, no extra headers
+        const response = await axios.get(
+            `${STATS_BASE_URL}/stats/time/users/${playerId}/games/${GAME}`,
+            { params: { size: limit, page: 0, from, to } }
+        );
+
+        // Response shape: { code: "OPERATION-OK", payload: [...] }
+        const items = response.data?.payload ?? response.data;
+        if (!Array.isArray(items)) return null;
+
+        return items; // newest-first
+    } catch (error) {
+        console.error(`Error fetching ELO timeline for player ${playerId}:`, error.message);
+        return null;
+    }
+}
+
+/**
  * Calculate average stats
  */
 function calculateAverageStats(statsArray) {
@@ -110,20 +143,39 @@ async function getPlayerStats(apiClient, nickname, matchesCount) {
         const playerId   = playerInfo.player_id;
         const currentElo = playerInfo.games?.cs2?.faceit_elo ?? null;
 
-        const statsData = await getPlayerGameStats(apiClient, playerId, matchesCount);
+        // Fetch game stats and ELO timeline in parallel.
+        // Request N+1 timeline items so we have the ELO baseline just before the window.
+        const [statsData, eloItems] = await Promise.all([
+            getPlayerGameStats(apiClient, playerId, matchesCount),
+            getPlayerEloTimeline(playerId, matchesCount + 1)
+        ]);
 
-        if (!statsData || !statsData.items || statsData.items.length === 0) {
+        if (!statsData?.items?.length) {
             return null;
         }
 
         const allStats = statsData.items.map(item => item.stats);
-        if (allStats.length === 0) {
+        if (!allStats.length) {
             return null;
+        }
+
+        // ELO change over N matches (items are newest-first):
+        //   eloItems[0].elo     = ELO after the most recent match in the window
+        //   eloItems[N].elo     = ELO after the match just BEFORE our window
+        //   delta = eloItems[0].elo - eloItems[N].elo
+        let eloChange = null;
+        if (Array.isArray(eloItems) && eloItems.length > matchesCount) {
+            const eloAfterNewest  = parseInt(eloItems[0].elo, 10);
+            const eloBeforeWindow = parseInt(eloItems[matchesCount].elo, 10);
+            if (!isNaN(eloAfterNewest) && !isNaN(eloBeforeWindow)) {
+                eloChange = eloAfterNewest - eloBeforeWindow;
+            }
         }
 
         const stats = calculateAverageStats(allStats);
         stats.nickname    = nickname;
         stats.current_elo = currentElo;
+        stats.elo_change  = eloChange;
 
         return stats;
     } catch (e) {
