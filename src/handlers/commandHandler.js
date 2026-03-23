@@ -11,12 +11,11 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
     }
 
     // Column widths
-    // Row width (name=9): 9 + 3 + 4 + 3 + 4 + 3 + 4 + 3 + 4 + 3 + 4 = 43 chars
-    const KD_WIDTH      = 4;
-    const ADR_WIDTH     = 4; // ADR displayed as 1 decimal → "90.7" = 4 chars
-    const AVGK_WIDTH    = 4; // Avg kills 1 decimal → "17.7" = 4 chars
-    const ELO_WIDTH     = 4;
-    const ELO_CHG_WIDTH = 4; // "+999" / "-115" cover normal range
+    // Row width (name=9): 9 + 3 + 4 + 3 + 4 + 3 + 4 + 3 + 4 = 37 chars
+    const KD_WIDTH   = 4;
+    const ADR_WIDTH  = 4;
+    const AVGK_WIDTH = 4;
+    const ELO_WIDTH  = 4;
 
     // Dynamic name width capped at MAX_NAME_LENGTH (min 4 for "Name" header)
     const longestName  = leaderboard.reduce((max, p) => Math.max(max, p.nickname.length), 0);
@@ -27,42 +26,29 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
     message += '```\n';
 
     // Header row
-    const nameHeader   = 'Name'.padEnd(nameColWidth, ' ');
-    const adrHeader    = 'ADR'.padStart(ADR_WIDTH, ' ');
-    const kdHeader     = 'K/D'.padStart(KD_WIDTH, ' ');
-    const avgKHeader   = 'Kill'.padStart(AVGK_WIDTH, ' ');
-    const eloHeader    = 'ELO'.padStart(ELO_WIDTH, ' ');
-    const eloChgHeader = '±ELO'.padStart(ELO_CHG_WIDTH, ' ');
+    const nameHeader = 'Name'.padEnd(nameColWidth, ' ');
+    const adrHeader  = 'ADR'.padStart(ADR_WIDTH, ' ');
+    const kdHeader   = 'K/D'.padStart(KD_WIDTH, ' ');
+    const avgKHeader = 'Kill'.padStart(AVGK_WIDTH, ' ');
+    const eloHeader  = 'ELO'.padStart(ELO_WIDTH, ' ');
 
-    message += `${nameHeader} | ${adrHeader} | ${kdHeader} | ${avgKHeader} | ${eloHeader} | ${eloChgHeader}\n`;
-    message += `${'-'.repeat(nameColWidth)} | ${'-'.repeat(ADR_WIDTH)} | ${'-'.repeat(KD_WIDTH)} | ${'-'.repeat(AVGK_WIDTH)} | ${'-'.repeat(ELO_WIDTH)} | ${'-'.repeat(ELO_CHG_WIDTH)}\n`;
+    message += `${nameHeader} | ${adrHeader} | ${kdHeader} | ${avgKHeader} | ${eloHeader}\n`;
+    message += `${'-'.repeat(nameColWidth)} | ${'-'.repeat(ADR_WIDTH)} | ${'-'.repeat(KD_WIDTH)} | ${'-'.repeat(AVGK_WIDTH)} | ${'-'.repeat(ELO_WIDTH)}\n`;
 
     leaderboard.forEach(player => {
-        // Truncate name if needed
         let name = player.nickname;
         if (name.length > nameColWidth) name = name.substring(0, nameColWidth);
         name = name.padEnd(nameColWidth, ' ');
 
-        // 1 decimal for ADR and avg kills to keep column width at 4
         const kd   = player.kills_deaths_ratio.toString().padStart(KD_WIDTH, ' ');
         const adr  = parseFloat(player.average_damage_per_round).toFixed(1).padStart(ADR_WIDTH, ' ');
         const avgK = parseFloat(player.average_kills).toFixed(1).padStart(AVGK_WIDTH, ' ');
 
-        // Current ELO
         const eloVal = player.current_elo != null
             ? player.current_elo.toString().padStart(ELO_WIDTH, ' ')
             : ' N/A';
 
-        // ELO change with explicit sign
-        let eloChgVal;
-        if (player.elo_change != null) {
-            const sign = player.elo_change >= 0 ? '+' : '';
-            eloChgVal = `${sign}${player.elo_change}`.padStart(ELO_CHG_WIDTH, ' ');
-        } else {
-            eloChgVal = ' N/A';
-        }
-
-        message += `${name} | ${adr} | ${kd} | ${avgK} | ${eloVal} | ${eloChgVal}\n`;
+        message += `${name} | ${adr} | ${kd} | ${avgK} | ${eloVal}\n`;
     });
     message += '```';
 

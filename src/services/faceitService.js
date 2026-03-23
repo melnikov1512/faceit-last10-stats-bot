@@ -66,38 +66,6 @@ async function getPlayerGameStats(apiClient, playerId, limit = 10) {
 }
 
 /**
- * Get player match history (newest-first).
- * Each item contains team/player data including an `elo` field per player.
- */
-async function getPlayerHistory(apiClient, playerId, limit = 10) {
-    try {
-        const response = await apiClient.get(`/players/${playerId}/history`, {
-            params: { game: GAME, offset: 0, limit }
-        });
-        return response.data;
-    } catch (error) {
-        console.error(`Error fetching history for player ${playerId}:`, error.message);
-        return null;
-    }
-}
-
-/**
- * Find a specific player's ELO inside a match history item.
- * The `elo` field represents ELO before that match was played.
- */
-function findPlayerEloInMatch(matchItem, playerId) {
-    for (const faction of Object.values(matchItem.teams || {})) {
-        for (const player of (faction.players || [])) {
-            if (player.player_id === playerId) {
-                const elo = parseInt(player.elo, 10);
-                return isNaN(elo) ? null : elo;
-            }
-        }
-    }
-    return null;
-}
-
-/**
  * Calculate average stats
  */
 function calculateAverageStats(statsArray) {
@@ -134,21 +102,15 @@ function calculateAverageStats(statsArray) {
  */
 async function getPlayerStats(apiClient, nickname, matchesCount) {
     try {
-        // Get player info (contains current ELO)
         const playerInfo = await getPlayerInfo(apiClient, nickname);
         if (!playerInfo) {
             return null;
         }
 
-        const playerId  = playerInfo.player_id;
+        const playerId   = playerInfo.player_id;
         const currentElo = playerInfo.games?.cs2?.faceit_elo ?? null;
 
-        // Fetch game stats and match history in parallel to avoid extra latency.
-        // History gives us ELO-before-match per item; stats give us K/D, ADR, etc.
-        const [statsData, historyData] = await Promise.all([
-            getPlayerGameStats(apiClient, playerId, matchesCount),
-            getPlayerHistory(apiClient, playerId, matchesCount)
-        ]);
+        const statsData = await getPlayerGameStats(apiClient, playerId, matchesCount);
 
         if (!statsData || !statsData.items || statsData.items.length === 0) {
             return null;
@@ -159,24 +121,9 @@ async function getPlayerStats(apiClient, nickname, matchesCount) {
             return null;
         }
 
-        // ELO change = current ELO − ELO before the oldest match in the window.
-        // historyData.items is newest-first; the last item is the oldest match.
-        // The `elo` field in each history item is ELO **before** that match,
-        // so: delta = currentElo − history[last].elo = net change over N matches.
-        let eloChange = null;
-        if (historyData?.items?.length > 0 && currentElo != null) {
-            const oldestMatch    = historyData.items[historyData.items.length - 1];
-            const eloBeforeWindow = findPlayerEloInMatch(oldestMatch, playerId);
-            if (eloBeforeWindow != null) {
-                eloChange = currentElo - eloBeforeWindow;
-            }
-        }
-
-        // Calculate average values
         const stats = calculateAverageStats(allStats);
         stats.nickname    = nickname;
         stats.current_elo = currentElo;
-        stats.elo_change  = eloChange;
 
         return stats;
     } catch (e) {
