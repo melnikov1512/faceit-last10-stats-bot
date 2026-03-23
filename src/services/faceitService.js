@@ -102,53 +102,50 @@ function calculateAverageStats(statsArray) {
  */
 async function getPlayerStats(apiClient, nickname, matchesCount) {
     try {
-        // Get player info
+        // Get player info (contains current ELO)
         const playerInfo = await getPlayerInfo(apiClient, nickname);
         if (!playerInfo) {
             return null;
         }
 
-        const playerId = playerInfo.player_id;
-        // Current ELO from player profile
+        const playerId  = playerInfo.player_id;
         const currentElo = playerInfo.games?.cs2?.faceit_elo ?? null;
 
-        // Fetch limit+1 matches: the extra one gives us the ELO baseline
-        // (ELO right before the window started) for ELO Change calculation
-        const statsData = await getPlayerGameStats(apiClient, playerId, matchesCount + 1);
-        
+        // Fetch game stats and match history in parallel to avoid extra latency.
+        // History gives us ELO-before-match per item; stats give us K/D, ADR, etc.
+        const [statsData, historyData] = await Promise.all([
+            getPlayerGameStats(apiClient, playerId, matchesCount),
+            getPlayerHistory(apiClient, playerId, matchesCount)
+        ]);
+
         if (!statsData || !statsData.items || statsData.items.length === 0) {
             return null;
         }
 
-        const allItems = statsData.items; // newest-first order
-
-        // Use only the first matchesCount items for stat calculations
-        const windowItems = allItems.slice(0, matchesCount);
-        const allStats = windowItems.map(item => item.stats);
-
+        const allStats = statsData.items.map(item => item.stats);
         if (allStats.length === 0) {
             return null;
         }
 
-        // Calculate ELO change over the window:
-        //   eloAfterNewest  = Elo field of the most recent match in the window
-        //   eloBeforeWindow = Elo field of the (N+1)-th match, i.e. the match
-        //                     that was played just before our window began
+        // ELO change = current ELO − ELO before the oldest match in the window.
+        // historyData.items is newest-first; the last item is the oldest match.
+        // The `elo` field in each history item is ELO **before** that match,
+        // so: delta = currentElo − history[last].elo = net change over N matches.
         let eloChange = null;
-        if (allItems.length > matchesCount) {
-            const eloAfterNewest  = parseInt(allItems[0].stats.Elo, 10);
-            const eloBeforeWindow = parseInt(allItems[matchesCount].stats.Elo, 10);
-            if (!isNaN(eloAfterNewest) && !isNaN(eloBeforeWindow)) {
-                eloChange = eloAfterNewest - eloBeforeWindow;
+        if (historyData?.items?.length > 0 && currentElo != null) {
+            const oldestMatch    = historyData.items[historyData.items.length - 1];
+            const eloBeforeWindow = findPlayerEloInMatch(oldestMatch, playerId);
+            if (eloBeforeWindow != null) {
+                eloChange = currentElo - eloBeforeWindow;
             }
         }
 
         // Calculate average values
         const stats = calculateAverageStats(allStats);
-        stats.nickname   = nickname;
+        stats.nickname    = nickname;
         stats.current_elo = currentElo;
         stats.elo_change  = eloChange;
-        
+
         return stats;
     } catch (e) {
         console.error(`Error processing stats for ${nickname}:`, e);

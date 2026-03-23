@@ -3,69 +3,66 @@ const config = require('../config');
 const storageService = require('../services/storageService');
 const { COMMANDS } = require('../constants');
 
-const MAX_NAME_LENGTH = 13;
+const MAX_NAME_LENGTH = 9;
 
 function formatStatsMessage(leaderboard, requestedMatchesCount) {
     if (!leaderboard || leaderboard.length === 0) {
         return 'Failed to retrieve stats for any player.';
     }
 
-    // specific column widths
-    const KD_WIDTH       = 4;
-    const ADR_WIDTH      = 6;
-    const AVGK_WIDTH     = 5;
-    const MATCHES_WIDTH  = 3;
-    const ELO_WIDTH      = 4;
-    const ELO_CHG_WIDTH  = 5; // e.g. "+1234" or "-1234"
+    // Column widths
+    // Row width (name=9): 9 + 3 + 4 + 3 + 4 + 3 + 4 + 3 + 4 + 3 + 4 = 43 chars
+    const KD_WIDTH      = 4;
+    const ADR_WIDTH     = 4; // ADR displayed as 1 decimal → "90.7" = 4 chars
+    const AVGK_WIDTH    = 4; // Avg kills 1 decimal → "17.7" = 4 chars
+    const ELO_WIDTH     = 4;
+    const ELO_CHG_WIDTH = 4; // "+999" / "-115" cover normal range
 
-    // Calculate dynamic name width based on longest name in the list, capped at MAX_NAME_LENGTH
-    const longestName = leaderboard.reduce((max, player) => Math.max(max, player.nickname.length), 0);
-    const nameColWidth = Math.max(4, Math.min(longestName, MAX_NAME_LENGTH)); // At least 4 chars for "Name" header
+    // Dynamic name width capped at MAX_NAME_LENGTH (min 4 for "Name" header)
+    const longestName  = leaderboard.reduce((max, p) => Math.max(max, p.nickname.length), 0);
+    const nameColWidth = Math.max(4, Math.min(longestName, MAX_NAME_LENGTH));
 
     const titleCount = requestedMatchesCount || leaderboard[0].matchesAnalyzed || 10;
     let message = `📊 *FACEIT Last ${titleCount} Matches Stats*\n\n`;
     message += '```\n';
-    
-    // Header
-    const nameHeader    = 'Name'.padEnd(nameColWidth, ' ');
-    const adrHeader     = 'ADR'.padStart(ADR_WIDTH, ' ');
-    const kdHeader      = 'K/D'.padStart(KD_WIDTH, ' ');
-    const avgKHeader    = 'Kills'.padStart(AVGK_WIDTH, ' ');
-    const matchesHeader = '#'.padStart(MATCHES_WIDTH, ' ');
-    const eloHeader     = 'ELO'.padStart(ELO_WIDTH, ' ');
-    const eloChgHeader  = '±ELO'.padStart(ELO_CHG_WIDTH, ' ');
 
-    message += `${nameHeader} | ${adrHeader} | ${kdHeader} | ${avgKHeader} | ${matchesHeader} | ${eloHeader} | ${eloChgHeader}\n`;
-    message += `${'-'.repeat(nameColWidth)} | ${'-'.repeat(ADR_WIDTH)} | ${'-'.repeat(KD_WIDTH)} | ${'-'.repeat(AVGK_WIDTH)} | ${'-'.repeat(MATCHES_WIDTH)} | ${'-'.repeat(ELO_WIDTH)} | ${'-'.repeat(ELO_CHG_WIDTH)}\n`;
+    // Header row
+    const nameHeader   = 'Name'.padEnd(nameColWidth, ' ');
+    const adrHeader    = 'ADR'.padStart(ADR_WIDTH, ' ');
+    const kdHeader     = 'K/D'.padStart(KD_WIDTH, ' ');
+    const avgKHeader   = 'Kill'.padStart(AVGK_WIDTH, ' ');
+    const eloHeader    = 'ELO'.padStart(ELO_WIDTH, ' ');
+    const eloChgHeader = '±ELO'.padStart(ELO_CHG_WIDTH, ' ');
+
+    message += `${nameHeader} | ${adrHeader} | ${kdHeader} | ${avgKHeader} | ${eloHeader} | ${eloChgHeader}\n`;
+    message += `${'-'.repeat(nameColWidth)} | ${'-'.repeat(ADR_WIDTH)} | ${'-'.repeat(KD_WIDTH)} | ${'-'.repeat(AVGK_WIDTH)} | ${'-'.repeat(ELO_WIDTH)} | ${'-'.repeat(ELO_CHG_WIDTH)}\n`;
 
     leaderboard.forEach(player => {
-        // Truncate name if too long to maintain table structure
+        // Truncate name if needed
         let name = player.nickname;
         if (name.length > nameColWidth) name = name.substring(0, nameColWidth);
-        
         name = name.padEnd(nameColWidth, ' ');
-        
-        // Format stats
-        const kd      = player.kills_deaths_ratio.toString().padStart(KD_WIDTH, ' ');
-        const adr     = player.average_damage_per_round.toString().padStart(ADR_WIDTH, ' ');
-        const avgK    = player.average_kills.toString().padStart(AVGK_WIDTH, ' ');
-        const matches = (player.matchesAnalyzed || 0).toString().padStart(MATCHES_WIDTH, ' ');
 
-        // ELO (current)
-        const eloVal  = player.current_elo != null
+        // 1 decimal for ADR and avg kills to keep column width at 4
+        const kd   = player.kills_deaths_ratio.toString().padStart(KD_WIDTH, ' ');
+        const adr  = parseFloat(player.average_damage_per_round).toFixed(1).padStart(ADR_WIDTH, ' ');
+        const avgK = parseFloat(player.average_kills).toFixed(1).padStart(AVGK_WIDTH, ' ');
+
+        // Current ELO
+        const eloVal = player.current_elo != null
             ? player.current_elo.toString().padStart(ELO_WIDTH, ' ')
-            : ' N/A'.padStart(ELO_WIDTH, ' ');
+            : ' N/A';
 
-        // ELO Change with explicit sign
+        // ELO change with explicit sign
         let eloChgVal;
         if (player.elo_change != null) {
             const sign = player.elo_change >= 0 ? '+' : '';
             eloChgVal = `${sign}${player.elo_change}`.padStart(ELO_CHG_WIDTH, ' ');
         } else {
-            eloChgVal = '  N/A'.padStart(ELO_CHG_WIDTH, ' ');
+            eloChgVal = ' N/A';
         }
-        
-        message += `${name} | ${adr} | ${kd} | ${avgK} | ${matches} | ${eloVal} | ${eloChgVal}\n`;
+
+        message += `${name} | ${adr} | ${kd} | ${avgK} | ${eloVal} | ${eloChgVal}\n`;
     });
     message += '```';
 
