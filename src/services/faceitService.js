@@ -73,8 +73,8 @@ async function getPlayerGameStats(apiClient, playerId, limit = 10) {
  * IMPORTANT: This endpoint is public and actively rejects Authorization /
  * Accept headers — do NOT pass any custom headers.
  *
- * Returns newest-first array of match objects, each with an `elo` field
- * representing the player's ELO after that match.
+ * Each item contains `elo` (ELO after the match) and `elo_delta` (change for that match).
+ * Returns newest-first array.
  */
 async function getPlayerEloTimeline(playerId, limit) {
     try {
@@ -89,9 +89,16 @@ async function getPlayerEloTimeline(playerId, limit) {
 
         // Response shape: { code: "OPERATION-OK", payload: [...] }
         const items = response.data?.payload ?? response.data;
-        if (!Array.isArray(items)) return null;
+        if (!Array.isArray(items) || items.length === 0) return null;
 
-        return items; // newest-first
+        // Sort newest-first by whichever timestamp field is present
+        const dateField = ['date', 'created_at', 'finishedAt', 'finished_at', 'timestamp']
+            .find(f => items[0][f] != null);
+        if (dateField) {
+            items.sort((a, b) => Number(b[dateField]) - Number(a[dateField]));
+        }
+
+        return items;
     } catch (error) {
         console.error(`Error fetching ELO timeline for player ${playerId}:`, error.message);
         return null;
@@ -136,40 +143,37 @@ function calculateAverageStats(statsArray) {
 async function getPlayerStats(apiClient, nickname, matchesCount) {
     try {
         const playerInfo = await getPlayerInfo(apiClient, nickname);
-        if (!playerInfo) {
-            return null;
-        }
+        if (!playerInfo) return null;
 
         const playerId   = playerInfo.player_id;
         const currentElo = playerInfo.games?.cs2?.faceit_elo ?? null;
 
-        // Fetch game stats and ELO timeline in parallel.
-        // Request N+1 timeline items so we have the ELO baseline just before the window.
+        // Fetch game stats and ELO timeline in parallel
         const [statsData, eloItems] = await Promise.all([
             getPlayerGameStats(apiClient, playerId, matchesCount),
-            getPlayerEloTimeline(playerId, matchesCount + 1)
+            getPlayerEloTimeline(playerId, matchesCount)
         ]);
 
-        if (!statsData?.items?.length) {
-            return null;
-        }
+        if (!statsData?.items?.length) return null;
 
         const allStats = statsData.items.map(item => item.stats);
-        if (!allStats.length) {
-            return null;
-        }
+        if (!allStats.length) return null;
 
-        // ELO change over N matches (items are newest-first):
-        //   eloItems[0].elo     = ELO after the most recent match in the window
-        //   eloItems[N].elo     = ELO after the match just BEFORE our window
-        //   delta = eloItems[0].elo - eloItems[N].elo
+        // ELO change = sum of elo_delta for each match in the window.
+        // This is exact and doesn't require an N+1 baseline fetch.
         let eloChange = null;
-        if (Array.isArray(eloItems) && eloItems.length > matchesCount) {
-            const eloAfterNewest  = parseInt(eloItems[0].elo, 10);
-            const eloBeforeWindow = parseInt(eloItems[matchesCount].elo, 10);
-            if (!isNaN(eloAfterNewest) && !isNaN(eloBeforeWindow)) {
-                eloChange = eloAfterNewest - eloBeforeWindow;
+        if (Array.isArray(eloItems) && eloItems.length > 0) {
+            const windowItems = eloItems.slice(0, matchesCount);
+            let sum       = 0;
+            let validCount = 0;
+            for (const item of windowItems) {
+                const delta = parseInt(item.elo_delta, 10);
+                if (!isNaN(delta)) {
+                    sum += delta;
+                    validCount++;
+                }
             }
+            if (validCount > 0) eloChange = sum;
         }
 
         const stats = calculateAverageStats(allStats);
