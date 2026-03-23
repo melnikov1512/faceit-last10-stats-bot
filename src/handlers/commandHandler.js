@@ -11,10 +11,12 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
     }
 
     // specific column widths
-    const KD_WIDTH = 4;
-    const ADR_WIDTH = 6;
-    const AVGK_WIDTH = 5;
-    const MATCHES_WIDTH = 3;
+    const KD_WIDTH       = 4;
+    const ADR_WIDTH      = 6;
+    const AVGK_WIDTH     = 5;
+    const MATCHES_WIDTH  = 3;
+    const ELO_WIDTH      = 4;
+    const ELO_CHG_WIDTH  = 5; // e.g. "+1234" or "-1234"
 
     // Calculate dynamic name width based on longest name in the list, capped at MAX_NAME_LENGTH
     const longestName = leaderboard.reduce((max, player) => Math.max(max, player.nickname.length), 0);
@@ -25,14 +27,16 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
     message += '```\n';
     
     // Header
-    const nameHeader = 'Name'.padEnd(nameColWidth, ' ');
-    const adrHeader = 'ADR'.padStart(ADR_WIDTH, ' ');
-    const kdHeader = 'K/D'.padStart(KD_WIDTH, ' ');
-    const avgKHeader = 'Kills'.padStart(AVGK_WIDTH, ' ');
+    const nameHeader    = 'Name'.padEnd(nameColWidth, ' ');
+    const adrHeader     = 'ADR'.padStart(ADR_WIDTH, ' ');
+    const kdHeader      = 'K/D'.padStart(KD_WIDTH, ' ');
+    const avgKHeader    = 'Kills'.padStart(AVGK_WIDTH, ' ');
     const matchesHeader = '#'.padStart(MATCHES_WIDTH, ' ');
+    const eloHeader     = 'ELO'.padStart(ELO_WIDTH, ' ');
+    const eloChgHeader  = '±ELO'.padStart(ELO_CHG_WIDTH, ' ');
 
-    message += `${nameHeader} | ${adrHeader} | ${kdHeader} | ${avgKHeader} | ${matchesHeader}\n`;
-    message += `${'-'.repeat(nameColWidth)} | ${'-'.repeat(ADR_WIDTH)} | ${'-'.repeat(KD_WIDTH)} | ${'-'.repeat(AVGK_WIDTH)} | ${'-'.repeat(MATCHES_WIDTH)}\n`;
+    message += `${nameHeader} | ${adrHeader} | ${kdHeader} | ${avgKHeader} | ${matchesHeader} | ${eloHeader} | ${eloChgHeader}\n`;
+    message += `${'-'.repeat(nameColWidth)} | ${'-'.repeat(ADR_WIDTH)} | ${'-'.repeat(KD_WIDTH)} | ${'-'.repeat(AVGK_WIDTH)} | ${'-'.repeat(MATCHES_WIDTH)} | ${'-'.repeat(ELO_WIDTH)} | ${'-'.repeat(ELO_CHG_WIDTH)}\n`;
 
     leaderboard.forEach(player => {
         // Truncate name if too long to maintain table structure
@@ -42,12 +46,26 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
         name = name.padEnd(nameColWidth, ' ');
         
         // Format stats
-        const kd = player.kills_deaths_ratio.toString().padStart(KD_WIDTH, ' ');
-        const adr = player.average_damage_per_round.toString().padStart(ADR_WIDTH, ' ');
-        const avgK = player.average_kills.toString().padStart(AVGK_WIDTH, ' ');
+        const kd      = player.kills_deaths_ratio.toString().padStart(KD_WIDTH, ' ');
+        const adr     = player.average_damage_per_round.toString().padStart(ADR_WIDTH, ' ');
+        const avgK    = player.average_kills.toString().padStart(AVGK_WIDTH, ' ');
         const matches = (player.matchesAnalyzed || 0).toString().padStart(MATCHES_WIDTH, ' ');
+
+        // ELO (current)
+        const eloVal  = player.current_elo != null
+            ? player.current_elo.toString().padStart(ELO_WIDTH, ' ')
+            : ' N/A'.padStart(ELO_WIDTH, ' ');
+
+        // ELO Change with explicit sign
+        let eloChgVal;
+        if (player.elo_change != null) {
+            const sign = player.elo_change >= 0 ? '+' : '';
+            eloChgVal = `${sign}${player.elo_change}`.padStart(ELO_CHG_WIDTH, ' ');
+        } else {
+            eloChgVal = '  N/A'.padStart(ELO_CHG_WIDTH, ' ');
+        }
         
-        message += `${name} | ${adr} | ${kd} | ${avgK} | ${matches}\n`;
+        message += `${name} | ${adr} | ${kd} | ${avgK} | ${matches} | ${eloVal} | ${eloChgVal}\n`;
     });
     message += '```';
 

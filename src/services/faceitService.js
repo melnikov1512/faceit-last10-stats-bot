@@ -109,24 +109,45 @@ async function getPlayerStats(apiClient, nickname, matchesCount) {
         }
 
         const playerId = playerInfo.player_id;
-        
-        // Fetch last N matches stats directly using the optimized endpoint
-        const statsData = await getPlayerGameStats(apiClient, playerId, matchesCount);
+        // Current ELO from player profile
+        const currentElo = playerInfo.games?.cs2?.faceit_elo ?? null;
+
+        // Fetch limit+1 matches: the extra one gives us the ELO baseline
+        // (ELO right before the window started) for ELO Change calculation
+        const statsData = await getPlayerGameStats(apiClient, playerId, matchesCount + 1);
         
         if (!statsData || !statsData.items || statsData.items.length === 0) {
             return null;
         }
 
-        // Extract stats object from each item
-        const allStats = statsData.items.map(item => item.stats);
+        const allItems = statsData.items; // newest-first order
+
+        // Use only the first matchesCount items for stat calculations
+        const windowItems = allItems.slice(0, matchesCount);
+        const allStats = windowItems.map(item => item.stats);
 
         if (allStats.length === 0) {
             return null;
         }
 
+        // Calculate ELO change over the window:
+        //   eloAfterNewest  = Elo field of the most recent match in the window
+        //   eloBeforeWindow = Elo field of the (N+1)-th match, i.e. the match
+        //                     that was played just before our window began
+        let eloChange = null;
+        if (allItems.length > matchesCount) {
+            const eloAfterNewest  = parseInt(allItems[0].stats.Elo, 10);
+            const eloBeforeWindow = parseInt(allItems[matchesCount].stats.Elo, 10);
+            if (!isNaN(eloAfterNewest) && !isNaN(eloBeforeWindow)) {
+                eloChange = eloAfterNewest - eloBeforeWindow;
+            }
+        }
+
         // Calculate average values
         const stats = calculateAverageStats(allStats);
-        stats.nickname = nickname;
+        stats.nickname   = nickname;
+        stats.current_elo = currentElo;
+        stats.elo_change  = eloChange;
         
         return stats;
     } catch (e) {

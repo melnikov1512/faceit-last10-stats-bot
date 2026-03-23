@@ -4,7 +4,8 @@ A Node.js Telegram bot designed to be deployed as a **Google Cloud Function** (H
 
 ## Features
 
-- **Get Stats**: Fetch average stats (K/D, ADR, Average Kills) for the last N matches (default 10).
+- **Get Stats**: Fetch average stats (K/D, ADR, Average Kills, current ELO, and ELO change) for the last N matches (default 10).
+- **ELO Tracking**: Displays each player's current ELO rating and how much it changed over the selected number of matches (e.g. `+63` or `-115`).
 - **Player Management**: Add or remove players to track per chat.
 - **Batched Processing**: Efficiently fetches stats for multiple players respecting API rate limits.
 - **Persistence**: Uses Google Cloud Firestore (Native Mode) to store tracked players for each chat.
