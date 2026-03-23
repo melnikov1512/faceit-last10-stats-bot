@@ -70,33 +70,43 @@ async function getPlayerGameStats(apiClient, playerId, limit = 10) {
 /**
  * Fetch per-match ELO timeline from the unofficial FACEIT stats API.
  *
- * IMPORTANT: This endpoint is public and actively rejects Authorization /
- * Accept headers — do NOT pass any custom headers.
- *
- * Each item contains `elo` (ELO after the match) and `elo_delta` (change for that match).
+ * MUST use Node.js built-in fetch (undici TLS stack) — axios is blocked by Cloudflare.
+ * Each item contains `elo` (ELO after match) and `elo_delta` (change for that match).
  * Returns newest-first array.
  */
 async function getPlayerEloTimeline(playerId, limit) {
     try {
-        // Wide time range known to work (values from FACEIT Discord community)
-        const FROM = 1604676605000; // Nov 2020 in ms
-        const TO   = 2235828605000; // far future in ms
+        // Wide time range known to work (from FACEIT Discord community)
+        const params = new URLSearchParams({
+            size: limit,
+            page: 0,
+            from: 1604676605000,
+            to:   2235828605000,
+        });
+        const url = `${STATS_BASE_URL}/stats/time/users/${playerId}/games/${GAME}?${params}`;
 
-        // Plain axios call — no baseURL, no extra headers
-        const response = await axios.get(
-            `${STATS_BASE_URL}/stats/time/users/${playerId}/games/${GAME}`,
-            { params: { size: limit, page: 0, from: FROM, to: TO } }
-        );
+        // fetch (undici) has a different TLS fingerprint than axios — passes Cloudflare
+        const res = await fetch(url, {
+            headers: {
+                'User-Agent': 'PostmanRuntime/7.43.0',
+                'Accept':     '*/*',
+            },
+        });
 
-        // The unofficial API may omit Content-Type: application/json,
-        // so axios might keep response.data as a raw string — parse defensively.
-        let raw = response.data;
-        if (typeof raw === 'string') {
-            try { raw = JSON.parse(raw); } catch (_) { return null; }
+        if (!res.ok) {
+            console.error(`ELO timeline HTTP ${res.status} for player ${playerId}`);
+            return null;
         }
 
-        // Response is a direct array (no wrapper object)
-        const items = Array.isArray(raw) ? raw : (raw?.payload ?? null);
+        const text = await res.text();
+        let items;
+        try {
+            const parsed = JSON.parse(text);
+            items = Array.isArray(parsed) ? parsed : (parsed?.payload ?? null);
+        } catch (_) {
+            return null;
+        }
+
         if (!Array.isArray(items) || items.length === 0) return null;
 
         // Sort newest-first by created_at (ms timestamp in each item)
