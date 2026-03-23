@@ -78,25 +78,29 @@ async function getPlayerGameStats(apiClient, playerId, limit = 10) {
  */
 async function getPlayerEloTimeline(playerId, limit) {
     try {
-        const to   = Date.now();
-        const from = to - 2 * 365 * 24 * 60 * 60 * 1000; // 2 years back in ms
+        // Wide time range known to work (values from FACEIT Discord community)
+        const FROM = 1604676605000; // Nov 2020 in ms
+        const TO   = 2235828605000; // far future in ms
 
         // Plain axios call — no baseURL, no extra headers
         const response = await axios.get(
             `${STATS_BASE_URL}/stats/time/users/${playerId}/games/${GAME}`,
-            { params: { size: limit, page: 0, from, to } }
+            { params: { size: limit, page: 0, from: FROM, to: TO } }
         );
 
-        // Response shape: { code: "OPERATION-OK", payload: [...] }
-        const items = response.data?.payload ?? response.data;
+        // The unofficial API may omit Content-Type: application/json,
+        // so axios might keep response.data as a raw string — parse defensively.
+        let raw = response.data;
+        if (typeof raw === 'string') {
+            try { raw = JSON.parse(raw); } catch (_) { return null; }
+        }
+
+        // Response is a direct array (no wrapper object)
+        const items = Array.isArray(raw) ? raw : (raw?.payload ?? null);
         if (!Array.isArray(items) || items.length === 0) return null;
 
-        // Sort newest-first by whichever timestamp field is present
-        const dateField = ['date', 'created_at', 'finishedAt', 'finished_at', 'timestamp']
-            .find(f => items[0][f] != null);
-        if (dateField) {
-            items.sort((a, b) => Number(b[dateField]) - Number(a[dateField]));
-        }
+        // Sort newest-first by created_at (ms timestamp in each item)
+        items.sort((a, b) => Number(b.created_at) - Number(a.created_at));
 
         return items;
     } catch (error) {
