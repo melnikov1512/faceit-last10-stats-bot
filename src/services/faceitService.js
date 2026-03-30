@@ -244,7 +244,22 @@ async function validatePlayer(apiKey, nickname) {
     return !!info;
 }
 
+/**
+ * Get a player's FACEIT player_id by nickname
+ * @param {string} apiKey
+ * @param {string} nickname
+ * @returns {Promise<{playerId: string, nickname: string}|null>}
+ */
+async function getPlayerIdByNickname(apiKey, nickname) {
+    if (!apiKey) return null;
+    const apiClient = createApiClient(apiKey);
+    const info = await getPlayerInfo(apiClient, nickname);
+    if (!info) return null;
+    return { playerId: info.player_id, nickname: info.nickname };
+}
+
 module.exports = {
     getLeaderboardStats,
-    validatePlayer
+    validatePlayer,
+    getPlayerIdByNickname
 };

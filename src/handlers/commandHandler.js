@@ -1,6 +1,7 @@
 const { getLeaderboardStats, validatePlayer } = require('../services/faceitService');
 const config = require('../config');
 const storageService = require('../services/storageService');
+const { subscribePlayerToChat, unsubscribePlayerFromChat } = require('../services/subscriptionService');
 const { COMMANDS } = require('../constants');
 
 function formatStatsMessage(leaderboard, requestedMatchesCount) {
@@ -122,7 +123,32 @@ function handleHelp() {
         `• \`${COMMANDS.ADD_PLAYER} <nickname>\` - Add a player to the tracking list.\n` +
         `• \`${COMMANDS.REMOVE_PLAYER} <nickname>\` - Remove a player from the tracking list.\n` +
         `• \`${COMMANDS.PLAYERS}\` - List all tracked players in this chat.\n` +
+        `• \`${COMMANDS.SUBSCRIBE} <nickname>\` - Subscribe to match-start notifications for a player.\n` +
+        `• \`${COMMANDS.UNSUBSCRIBE} <nickname>\` - Unsubscribe from a player's notifications.\n` +
+        `• \`${COMMANDS.MY_SUBSCRIPTIONS}\` - List active subscriptions in this chat.\n` +
         `• \`${COMMANDS.HELP}\` - Show this help message.`;
+}
+
+async function handleSubscribe(chatId, args, apiKey) {
+    if (args.length === 0) {
+        return `⚠️ Usage: \`${COMMANDS.SUBSCRIBE} <nickname>\``;
+    }
+    return subscribePlayerToChat(chatId, args[0], apiKey);
+}
+
+async function handleUnsubscribe(chatId, args, apiKey) {
+    if (args.length === 0) {
+        return `⚠️ Usage: \`${COMMANDS.UNSUBSCRIBE} <nickname>\``;
+    }
+    return unsubscribePlayerFromChat(chatId, args[0], apiKey);
+}
+
+async function handleMySubscriptions(chatId) {
+    const subscriptions = await storageService.getChatSubscriptions(chatId);
+    if (subscriptions.length === 0) {
+        return `📭 No active subscriptions. Use \`${COMMANDS.SUBSCRIBE} <nickname>\` to subscribe.`;
+    }
+    return `🔔 *Active subscriptions:*\n\n` + subscriptions.map(s => `• \`${s.nickname}\``).join('\n');
 }
 
 async function handleCommand(command, chatId, args, apiKey) {
@@ -135,6 +161,12 @@ async function handleCommand(command, chatId, args, apiKey) {
             return handleRemovePlayer(chatId, args);
         case COMMANDS.PLAYERS:
             return handlePlayers(chatId);
+        case COMMANDS.SUBSCRIBE:
+            return handleSubscribe(chatId, args, apiKey);
+        case COMMANDS.UNSUBSCRIBE:
+            return handleUnsubscribe(chatId, args, apiKey);
+        case COMMANDS.MY_SUBSCRIPTIONS:
+            return handleMySubscriptions(chatId);
         case COMMANDS.HELP:
             return handleHelp();
         default:
