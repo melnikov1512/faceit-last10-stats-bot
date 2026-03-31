@@ -110,7 +110,7 @@ async function handleMatchEvent(payload) {
         await storageService.markNotificationSent(matchId, chatId);
 
         const playerList = nicknames.map(n => `*${n}*`).join(', ');
-        const text = `🎮 *Матч найден!*\n\nИгроки в матче: ${playerList}\n🔗 [Принять матч](${MATCH_URL_BASE}/${matchId})`;
+        const text = `🎮 ${playerList} начали матч!\n🔗 [Смотреть матч](${MATCH_URL_BASE}/${matchId})`;
 
         await sendMessage(chatId, text);
         console.log(`[FACEIT WEBHOOK] Sent match ${matchId} notification to chat ${chatId} for players: ${nicknames.join(', ')}`);
