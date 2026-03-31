@@ -60,23 +60,28 @@ async function handleMatchEvent(payload) {
         return;
     }
 
-    // Extract all players from both teams
-    const faction1 = payload?.teams?.faction1?.roster || [];
-    const faction2 = payload?.teams?.faction2?.roster || [];
-    let allRosterPlayers = [...faction1, ...faction2];
+    // Extract team info and rosters
+    let faction1 = payload?.teams?.faction1 || {};
+    let faction2 = payload?.teams?.faction2 || {};
+    let allRosterPlayers = [...(faction1.roster || []), ...(faction2.roster || [])];
 
     if (allRosterPlayers.length === 0) {
         console.warn(`[FACEIT WEBHOOK] Match ${matchId} has no roster data in payload, fetching from API...`);
         const matchDetails = await getMatchDetails(config.faceit_api_key, matchId);
-        const f1 = matchDetails?.teams?.faction1?.roster || [];
-        const f2 = matchDetails?.teams?.faction2?.roster || [];
-        allRosterPlayers = [...f1, ...f2];
+        faction1 = matchDetails?.teams?.faction1 || {};
+        faction2 = matchDetails?.teams?.faction2 || {};
+        allRosterPlayers = [...(faction1.roster || []), ...(faction2.roster || [])];
 
         if (allRosterPlayers.length === 0) {
             console.warn(`[FACEIT WEBHOOK] Match ${matchId} has no roster data in API response either, skipping`);
             return;
         }
     }
+
+    const team1Name = faction1.name || 'Team 1';
+    const team2Name = faction2.name || 'Team 2';
+    const team1Elo = faction1.stats?.rating;
+    const team2Elo = faction2.stats?.rating;
 
 
     // For each player in the match, find which chats are subscribed
@@ -112,7 +117,22 @@ async function handleMatchEvent(payload) {
 
         const playerList = nicknames.map(n => `*${n}*`).join(', ');
         const verb = nicknames.length === 1 ? 'начал' : 'начали';
-        const text = `🎮 ${playerList} ${verb} матч!\n🔗 [Смотреть матч](${MATCH_URL_BASE}/${matchId})`;
+
+        const team1EloLine = team1Elo ? `_(avg. ELO: ${team1Elo})_` : null;
+        const team2EloLine = team2Elo ? `_(avg. ELO: ${team2Elo})_` : null;
+
+        const lines = [
+            `🎮 ${playerList} ${verb} матч!`,
+            '',
+            `*${team1Name}*`,
+            ...(team1EloLine ? [team1EloLine] : []),
+            'vs',
+            `*${team2Name}*`,
+            ...(team2EloLine ? [team2EloLine] : []),
+            '',
+            `🔗 [Смотреть матч](${MATCH_URL_BASE}/${matchId})`,
+        ];
+        const text = lines.join('\n');
 
         await sendMessage(chatId, text);
         console.log(`[FACEIT WEBHOOK] Sent match ${matchId} notification to chat ${chatId} for players: ${nicknames.join(', ')}`);
