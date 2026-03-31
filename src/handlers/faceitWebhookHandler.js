@@ -1,7 +1,7 @@
 const config = require('../config');
 const { handleMatchEvent } = require('../services/subscriptionService');
 
-const SUPPORTED_EVENTS = new Set(['match_object_created']);
+const SUPPORTED_EVENTS = new Set(['match_status_ready']);
 
 async function handleFaceitWebhook(req, res) {
     // Verify webhook secret
