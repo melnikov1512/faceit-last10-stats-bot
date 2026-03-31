@@ -258,8 +258,28 @@ async function getPlayerIdByNickname(apiKey, nickname) {
     return { playerId: info.player_id, nickname: info.nickname };
 }
 
+/**
+ * Fetch match details by match ID from FACEIT Data API v4.
+ * Used to retrieve roster when webhook payload lacks team data.
+ * @param {string} apiKey
+ * @param {string} matchId
+ * @returns {Promise<object|null>}
+ */
+async function getMatchDetails(apiKey, matchId) {
+    if (!apiKey || !matchId) return null;
+    const apiClient = createApiClient(apiKey);
+    try {
+        const response = await apiClient.get(`/matches/${matchId}`);
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching match details for ${matchId}:`, error.message);
+        return null;
+    }
+}
+
 module.exports = {
     getLeaderboardStats,
     validatePlayer,
-    getPlayerIdByNickname
+    getPlayerIdByNickname,
+    getMatchDetails
 };

@@ -1,6 +1,7 @@
 const storageService = require('./storageService');
 const { sendMessage } = require('./telegramService');
-const { getPlayerIdByNickname } = require('./faceitService');
+const { getPlayerIdByNickname, getMatchDetails } = require('./faceitService');
+const config = require('../config');
 
 const MATCH_URL_BASE = 'https://www.faceit.com/en/cs2/room';
 
@@ -62,11 +63,19 @@ async function handleMatchEvent(payload) {
     // Extract all players from both teams
     const faction1 = payload?.teams?.faction1?.roster || [];
     const faction2 = payload?.teams?.faction2?.roster || [];
-    const allRosterPlayers = [...faction1, ...faction2];
+    let allRosterPlayers = [...faction1, ...faction2];
 
     if (allRosterPlayers.length === 0) {
-        console.warn(`[FACEIT WEBHOOK] Match ${matchId} has no roster data`);
-        return;
+        console.warn(`[FACEIT WEBHOOK] Match ${matchId} has no roster data in payload, fetching from API...`);
+        const matchDetails = await getMatchDetails(config.faceit_api_key, matchId);
+        const f1 = matchDetails?.teams?.faction1?.roster || [];
+        const f2 = matchDetails?.teams?.faction2?.roster || [];
+        allRosterPlayers = [...f1, ...f2];
+
+        if (allRosterPlayers.length === 0) {
+            console.warn(`[FACEIT WEBHOOK] Match ${matchId} has no roster data in API response either, skipping`);
+            return;
+        }
     }
 
     // For each player in the match, find which chats are subscribed
