@@ -61,15 +61,16 @@ async function handleMatchEvent(payload) {
     }
 
     // Extract team info and rosters
+    let matchData = payload;
     let faction1 = payload?.teams?.faction1 || {};
     let faction2 = payload?.teams?.faction2 || {};
     let allRosterPlayers = [...(faction1.roster || []), ...(faction2.roster || [])];
 
     if (allRosterPlayers.length === 0) {
         console.warn(`[FACEIT WEBHOOK] Match ${matchId} has no roster data in payload, fetching from API...`);
-        const matchDetails = await getMatchDetails(config.faceit_api_key, matchId);
-        faction1 = matchDetails?.teams?.faction1 || {};
-        faction2 = matchDetails?.teams?.faction2 || {};
+        matchData = await getMatchDetails(config.faceit_api_key, matchId);
+        faction1 = matchData?.teams?.faction1 || {};
+        faction2 = matchData?.teams?.faction2 || {};
         allRosterPlayers = [...(faction1.roster || []), ...(faction2.roster || [])];
 
         if (allRosterPlayers.length === 0) {
@@ -82,6 +83,12 @@ async function handleMatchEvent(payload) {
     const team2Name = faction2.name || 'Team 2';
     const team1Elo = faction1.stats?.rating;
     const team2Elo = faction2.stats?.rating;
+    const team1WinProb = faction1.stats?.winProbability;
+    const team2WinProb = faction2.stats?.winProbability;
+
+    const competitionName = matchData?.competition_name;
+    const region = matchData?.region;
+    const bestOf = matchData?.best_of;
 
 
     // For each player in the match, find which chats are subscribed
@@ -118,17 +125,24 @@ async function handleMatchEvent(payload) {
         const playerList = nicknames.map(n => `*${n}*`).join(', ');
         const verb = nicknames.length === 1 ? 'начал' : 'начали';
 
-        const team1EloLine = team1Elo ? `_(avg. ELO: ${team1Elo})_` : null;
-        const team2EloLine = team2Elo ? `_(avg. ELO: ${team2Elo})_` : null;
+        const metaParts = [
+            competitionName,
+            region,
+            bestOf ? `BO${bestOf}` : null,
+        ].filter(Boolean);
+
+        const formatTeamLine = (emoji, name, elo, winProb) => {
+            const eloPart = elo ? `${elo} ELO` : null;
+            const winPart = winProb != null ? `${Math.round(winProb * 100)}% win` : null;
+            return [emoji, `*${name}*`, eloPart, winPart].filter(Boolean).join('  ');
+        };
 
         const lines = [
             `🎮 ${playerList} ${verb} матч!`,
+            ...(metaParts.length ? [metaParts.join(' • ')] : []),
             '',
-            `*${team1Name}*`,
-            ...(team1EloLine ? [team1EloLine] : []),
-            'vs',
-            `*${team2Name}*`,
-            ...(team2EloLine ? [team2EloLine] : []),
+            formatTeamLine('🔵', team1Name, team1Elo, team1WinProb),
+            formatTeamLine('🔴', team2Name, team2Elo, team2WinProb),
             '',
             `🔗 [Смотреть матч](${MATCH_URL_BASE}/${matchId})`,
         ];
