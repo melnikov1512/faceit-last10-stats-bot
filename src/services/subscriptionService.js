@@ -131,18 +131,22 @@ async function handleMatchEvent(payload) {
             bestOf ? `BO${bestOf}` : null,
         ].filter(Boolean);
 
-        const formatTeamLine = (emoji, name, elo, winProb) => {
+        const team1TrackedPlayers = nicknames.filter(n => faction1.roster?.some(p => p.nickname === n));
+        const team2TrackedPlayers = nicknames.filter(n => faction2.roster?.some(p => p.nickname === n));
+
+        const formatTeamLine = (emoji, name, elo, winProb, trackedPlayers) => {
             const eloPart = elo ? `${elo} ELO` : null;
             const winPart = winProb != null ? `${Math.round(winProb * 100)}% win` : null;
-            return [emoji, `*${name}*`, eloPart, winPart].filter(Boolean).join('  ');
+            const playerPart = trackedPlayers?.length > 0 ? `← ${trackedPlayers.map(n => `*${n}*`).join(', ')}` : null;
+            return [emoji, `*${name}*`, eloPart, winPart, playerPart].filter(Boolean).join('  ');
         };
 
         const lines = [
             `🎮 ${playerList} ${verb} матч!`,
             ...(metaParts.length ? [metaParts.join(' • ')] : []),
             '',
-            formatTeamLine('🔵', team1Name, team1Elo, team1WinProb),
-            formatTeamLine('🔴', team2Name, team2Elo, team2WinProb),
+            formatTeamLine('🔵', team1Name, team1Elo, team1WinProb, team1TrackedPlayers),
+            formatTeamLine('🔴', team2Name, team2Elo, team2WinProb, team2TrackedPlayers),
             '',
             `🔗 [Смотреть матч](${MATCH_URL_BASE}/${matchId})`,
         ];
