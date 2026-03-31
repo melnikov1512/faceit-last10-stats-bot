@@ -78,7 +78,6 @@ async function handleMatchEvent(payload) {
         }
     }
 
-    const mapName = payload?.voting?.map?.pick?.[0] ?? null;
 
     // For each player in the match, find which chats are subscribed
     const chatToPlayers = new Map(); // chatId → [nickname, ...]
@@ -112,8 +111,8 @@ async function handleMatchEvent(payload) {
         await storageService.markNotificationSent(matchId, chatId);
 
         const playerList = nicknames.map(n => `*${n}*`).join(', ');
-        const mapLine = mapName ? `\n🗺 ${mapName}` : '';
-        const text = `🎮 ${playerList} начали матч!${mapLine}\n🔗 [Смотреть матч](${MATCH_URL_BASE}/${matchId})`;
+        const verb = nicknames.length === 1 ? 'начал' : 'начали';
+        const text = `🎮 ${playerList} ${verb} матч!\n🔗 [Смотреть матч](${MATCH_URL_BASE}/${matchId})`;
 
         await sendMessage(chatId, text);
         console.log(`[FACEIT WEBHOOK] Sent match ${matchId} notification to chat ${chatId} for players: ${nicknames.join(', ')}`);
