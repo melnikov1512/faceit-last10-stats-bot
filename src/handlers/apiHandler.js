@@ -1,11 +1,49 @@
 const storageService = require('../services/storageService');
 const { getMatchDetails, enrichMatchWithRosterElos } = require('../services/faceitService');
+const { collectMatchIds, fetchActiveMatchDetails } = require('../services/matchService');
+const { MATCH_URL_BASE } = require('../constants');
 const config = require('../config');
 
-const MATCH_URL_BASE = 'https://www.faceit.com/en/cs2/room';
+/**
+ * Enrich a raw match with roster ELOs, mark tracked players, and shape the API response object.
+ * @param {object} match - Raw match from FACEIT API
+ * @param {Set<string>} trackedPlayerIds
+ * @param {Map<string, string>} nicknameById
+ * @returns {Promise<object>}
+ */
+async function formatMatchResponse(match, trackedPlayerIds, nicknameById) {
+    const enriched = await enrichMatchWithRosterElos(config.faceit_api_key, match);
+    const matchId  = enriched.match_id || enriched.id;
+    const faction1 = enriched.teams?.faction1 || {};
+    const faction2 = enriched.teams?.faction2 || {};
 
-/** Statuses that mean a match is over */
-const FINISHED_STATUSES = new Set(['FINISHED', 'CANCELLED', 'ABORTED', 'WALKOVER', 'DROPPED']);
+    const markTracked = (roster) => (roster || []).map(p => ({
+        ...p,
+        isTracked: trackedPlayerIds.has(p.player_id),
+    }));
+
+    const trackedNicknames = [...new Set(
+        [...(faction1.roster || []), ...(faction2.roster || [])]
+            .map(p => p.player_id)
+            .filter(id => trackedPlayerIds.has(id))
+            .map(id => nicknameById.get(id) || id)
+    )];
+
+    return {
+        matchId,
+        status:           enriched.status,
+        competition_name: enriched.competition_name,
+        region:           enriched.region,
+        best_of:          enriched.best_of,
+        results:          enriched.results || null,
+        teams: {
+            faction1: { name: faction1.name, stats: faction1.stats || null, roster: markTracked(faction1.roster) },
+            faction2: { name: faction2.name, stats: faction2.stats || null, roster: markTracked(faction2.roster) },
+        },
+        trackedPlayers: trackedNicknames,
+        matchUrl: `${MATCH_URL_BASE}/${matchId}`,
+    };
+}
 
 /**
  * GET /api/active-matches?chatId=<chatId>
@@ -26,119 +64,31 @@ async function getActiveMatches(req, res) {
     }
 
     try {
-        const [subscriptions, storedMatchIds] = await Promise.all([
-            storageService.getChatSubscriptions(chatId),
-            storageService.getActiveMatchIds(chatId),
-        ]);
-
+        const subscriptions = await storageService.getChatSubscriptions(chatId);
         if (!subscriptions.length) {
             return res.json({ matches: [] });
         }
 
         const trackedPlayerIds = new Set(subscriptions.map(s => s.playerId));
-        const nicknameById = new Map(subscriptions.map(s => [s.playerId, s.nickname]));
+        const nicknameById     = new Map(subscriptions.map(s => [s.playerId, s.nickname]));
 
-        // Also search sent_match_notifications by playerIds (cross-chat, last 6 hours)
-        const sinceTs = Math.floor(Date.now() / 1000) - 6 * 60 * 60;
-        const notifMatchIds = await storageService.getRecentMatchIdsForPlayers(
-            [...trackedPlayerIds],
-            sinceTs
-        );
-
-        // Merge both sources, deduplicate
-        const allMatchIds = [...new Set([...storedMatchIds, ...notifMatchIds])];
-
-        console.log(`[API] Chat ${chatId}: ${subscriptions.length} subscriptions, ${storedMatchIds.length} stored + ${notifMatchIds.length} from notifications = ${allMatchIds.length} total match IDs`);
+        const allMatchIds = await collectMatchIds(chatId, [...trackedPlayerIds]);
+        console.log(`[API] Chat ${chatId}: ${subscriptions.length} subscriptions, ${allMatchIds.length} total match IDs`);
 
         if (!allMatchIds.length) {
             return res.json({ matches: [] });
         }
 
-        // Fetch current status for all match IDs in parallel
-        const matchDetails = await Promise.all(
-            allMatchIds.map(matchId => getMatchDetails(config.faceit_api_key, matchId))
-        );
-
-        // Filter out finished matches; clean up active_matches for finished ones
-        const matchMap = new Map();
-        await Promise.all(matchDetails.map(async (match, i) => {
-            const matchId = allMatchIds[i];
-            if (!match) return;
-
-            if (FINISHED_STATUSES.has(match.status)) {
-                await storageService.removeActiveMatch(chatId, matchId);
-                return;
-            }
-
-            // Only include if at least one subscribed player is in this match
-            const allRosterIds = [
-                ...(match.teams?.faction1?.roster || []),
-                ...(match.teams?.faction2?.roster || []),
-            ].map(p => p.player_id);
-
-            const hasTrackedPlayer = allRosterIds.some(id => trackedPlayerIds.has(id));
-            if (!hasTrackedPlayer) return;
-
-            if (!matchMap.has(matchId)) {
-                matchMap.set(matchId, match);
-            }
-        }));
-
-        if (!matchMap.size) {
+        const activeMatches = await fetchActiveMatchDetails(chatId, allMatchIds, config.faceit_api_key, trackedPlayerIds);
+        if (!activeMatches.length) {
             return res.json({ matches: [] });
         }
 
-        // Enrich each unique match with roster ELOs
-        const enrichedMatches = await Promise.all(
-            [...matchMap.values()].map(async (match) => {
-                const enriched = await enrichMatchWithRosterElos(config.faceit_api_key, match);
-                const matchId = enriched.match_id || enriched.id;
-
-                const faction1 = enriched.teams?.faction1 || {};
-                const faction2 = enriched.teams?.faction2 || {};
-
-                const markTracked = (roster) => (roster || []).map(p => ({
-                    ...p,
-                    isTracked: trackedPlayerIds.has(p.player_id),
-                }));
-
-                const allRosterIds = [
-                    ...(faction1.roster || []),
-                    ...(faction2.roster || []),
-                ].map(p => p.player_id);
-
-                const trackedNicknames = [...new Set(
-                    allRosterIds
-                        .filter(id => trackedPlayerIds.has(id))
-                        .map(id => nicknameById.get(id) || id)
-                )];
-
-                return {
-                    matchId,
-                    status: enriched.status,
-                    competition_name: enriched.competition_name,
-                    region: enriched.region,
-                    best_of: enriched.best_of,
-                    results: enriched.results || null,
-                    teams: {
-                        faction1: {
-                            name: faction1.name,
-                            stats: faction1.stats || null,
-                            roster: markTracked(faction1.roster),
-                        },
-                        faction2: {
-                            name: faction2.name,
-                            stats: faction2.stats || null,
-                            roster: markTracked(faction2.roster),
-                        },
-                    },
-                    trackedPlayers: trackedNicknames,
-                    matchUrl: `${MATCH_URL_BASE}/${matchId}`,
-                };
-            })
+        const matches = await Promise.all(
+            activeMatches.map(({ match }) => formatMatchResponse(match, trackedPlayerIds, nicknameById))
         );
 
-        return res.json({ matches: enrichedMatches });
+        return res.json({ matches });
     } catch (error) {
         console.error('[API] Error fetching active matches:', error);
         return res.status(500).json({ error: 'Internal server error' });
@@ -168,54 +118,10 @@ async function getMatch(req, res) {
         }
 
         const trackedPlayerIds = new Set(subscriptions.map(s => s.playerId));
-        const nicknameById = new Map(subscriptions.map(s => [s.playerId, s.nickname]));
+        const nicknameById     = new Map(subscriptions.map(s => [s.playerId, s.nickname]));
 
-        const enriched = await enrichMatchWithRosterElos(config.faceit_api_key, match);
-        const resolvedMatchId = enriched.match_id || enriched.id;
-
-        const faction1 = enriched.teams?.faction1 || {};
-        const faction2 = enriched.teams?.faction2 || {};
-
-        const markTracked = (roster) => (roster || []).map(p => ({
-            ...p,
-            isTracked: trackedPlayerIds.has(p.player_id),
-        }));
-
-        const allRosterIds = [
-            ...(faction1.roster || []),
-            ...(faction2.roster || []),
-        ].map(p => p.player_id);
-
-        const trackedNicknames = [...new Set(
-            allRosterIds
-                .filter(id => trackedPlayerIds.has(id))
-                .map(id => nicknameById.get(id) || id)
-        )];
-
-        return res.json({
-            match: {
-                matchId: resolvedMatchId,
-                status: enriched.status,
-                competition_name: enriched.competition_name,
-                region: enriched.region,
-                best_of: enriched.best_of,
-                results: enriched.results || null,
-                teams: {
-                    faction1: {
-                        name: faction1.name,
-                        stats: faction1.stats || null,
-                        roster: markTracked(faction1.roster),
-                    },
-                    faction2: {
-                        name: faction2.name,
-                        stats: faction2.stats || null,
-                        roster: markTracked(faction2.roster),
-                    },
-                },
-                trackedPlayers: trackedNicknames,
-                matchUrl: `${MATCH_URL_BASE}/${resolvedMatchId}`,
-            },
-        });
+        const formatted = await formatMatchResponse(match, trackedPlayerIds, nicknameById);
+        return res.json({ match: formatted });
     } catch (error) {
         console.error('[API] Error fetching match:', error);
         return res.status(500).json({ error: 'Internal server error' });

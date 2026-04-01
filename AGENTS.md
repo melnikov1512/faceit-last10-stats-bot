@@ -38,7 +38,8 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **ELO API Note**: The unofficial ELO timeline endpoint is fetched using Node.js native `fetch` (not axios) to bypass Cloudflare protection.
     - **Batching**: Processes player lookups in chunks of 10 to manage API rate limits. For each player, `getPlayerInfoById`, game stats, and ELO timeline are fetched in parallel (3 concurrent requests per player, no sequential nickname→id resolution needed).
     - **Output**: Sorted by ADR descending. Formatted as an HTML-escaped table: `Name | ADR | K/D | Kills | ELO | ±ELO`.
-    - **Active Match APIs**: `getPlayerActiveMatch(apiKey, playerId)` — checks last 24 h of player history for an active match (statuses: READY, VOTING, CONFIGURING, ONGOING) and returns full match details. `enrichMatchWithRosterElos(apiKey, match)` — adds `faceit_elo` and `skill_level` to every roster player.
+    - **Active Match API**: `enrichMatchWithRosterElos(apiKey, match)` — adds `faceit_elo` and `skill_level` to every roster player. Single-match lookup is handled by `GET /api/match` in `apiHandler.js`.
+    - **Axios client**: Single module-level instance (`getApiClient`) — created once and reused across all FACEIT API calls.
 - **Web App**: `public/index.html`. Telegram Mini App that displays active matches for subscribed players in a chat.
     - Opened via `GET /` (static file served from `public/`).
     - Reads `?chatId=` URL param (or Telegram `start_param`).
@@ -94,7 +95,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **Database**: Google Cloud Firestore (for per-chat persistence).
     - **Configuration**: `dotenv` (for local secrets management).
     - **Dev tooling**: `concurrently` for running ngrok + server in parallel.
-    - **Constants**: `src/commands.js` is the single source of truth for all commands (`COMMAND_LIST`, `COMMANDS`, `BOT_COMMANDS`). `src/constants.js` re-exports `COMMANDS` for backward compatibility.
+    - **Constants**: `src/commands.js` is the single source of truth for all commands (`COMMAND_LIST`, `COMMANDS`, `BOT_COMMANDS`). `src/constants.js` holds shared runtime constants (`FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS`). `src/utils.js` holds shared utility functions (`escapeHtml`).
 - **Configuration**:
   - `config.json` in root directory.
     - Note: The `users` array is legacy and ignored by bot commands; use `/add_player`.
@@ -124,14 +125,15 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/handlers/webhookHandler.js`: Telegram webhook routing, command parsing, and response dispatch.
 - `src/handlers/faceitWebhookHandler.js`: FACEIT webhook handler (validates secret, async event processing).
 - `src/handlers/commandHandler.js`: Business logic for all bot commands.
-- `src/handlers/apiHandler.js`: REST handler for `GET /api/active-matches` — returns active match data for subscribed players in a chat.
-- `src/services/faceitService.js`: CS2 stats logic; FACEIT API client; ELO timeline fetcher; active match detection; roster ELO enrichment.
+- `src/handlers/apiHandler.js`: REST handlers for `GET /api/active-matches` and `GET /api/match` — returns active/single match data. Shared `formatMatchResponse()` helper eliminates duplication.
+- `src/services/faceitService.js`: CS2 stats logic; FACEIT API client (single cached axios instance); ELO timeline fetcher; roster ELO enrichment.
 - `src/services/storageService.js`: Firestore database operations (players, subscriptions, deduplication).
 - `src/services/subscriptionService.js`: Match-start event handling and notification dispatch (includes web app inline button when `WEBAPP_URL` is set).
 - `src/services/telegramService.js`: Telegram Bot API integration for push notifications. `sendMessage(chatId, text, replyMarkup?)` supports optional inline keyboards.
 - `src/config.js`: Configuration loader (env vars + config.json).
 - `src/commands.js`: **Единый реестр команд.** Экспортирует `COMMAND_LIST` (полные описания), `COMMANDS` (словарь строк), `BOT_COMMANDS` (для `setMyCommands` API). Единственное место для добавления новых команд.
-- `src/constants.js`: Реэкспорт `COMMANDS` из `src/commands.js` (обратная совместимость).
+- `src/constants.js`: Shared runtime constants — `FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS`.
+- `src/utils.js`: Shared utility functions — `escapeHtml`.
 - `public/index.html`: Telegram Mini App web page — shows active matches with rosters, ELO, and live scores.
 - `config.json`: Master configuration file (default values; no secrets).
 - `scripts/` — утилиты для разработки (пусто после удаления `set-webhook.js`).

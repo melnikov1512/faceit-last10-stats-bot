@@ -18,16 +18,17 @@ async function processInChunks(items, chunkSize, processFn) {
     return results;
 }
 
-/**
- * Creates an axios instance with the provided API key
- */
-function createApiClient(apiKey) {
-    return axios.create({
-        baseURL: BASE_URL,
-        headers: {
-            'Authorization': `Bearer ${apiKey}`
-        }
-    });
+// Single shared axios instance — API key is constant for the lifetime of the process
+let _apiClient = null;
+
+function getApiClient(apiKey) {
+    if (!_apiClient) {
+        _apiClient = axios.create({
+            baseURL: BASE_URL,
+            headers: { 'Authorization': `Bearer ${apiKey}` },
+        });
+    }
+    return _apiClient;
 }
 
 /**
@@ -225,7 +226,7 @@ async function getLeaderboardStats(apiKey, players, limit = 10) {
     }
 
     // Process players with concurrency limit
-    const apiClient = createApiClient(apiKey);
+    const apiClient = getApiClient(apiKey);
     
     // Process 10 players at a time to keep total concurrent requests manageable
     const results = await processInChunks(
@@ -249,7 +250,7 @@ async function getLeaderboardStats(apiKey, players, limit = 10) {
  */
 async function getPlayerIdByNickname(apiKey, nickname) {
     if (!apiKey) return null;
-    const apiClient = createApiClient(apiKey);
+    const apiClient = getApiClient(apiKey);
     const info = await getPlayerInfo(apiClient, nickname);
     if (!info) return null;
     return { playerId: info.player_id, nickname: info.nickname };
@@ -264,7 +265,7 @@ async function getPlayerIdByNickname(apiKey, nickname) {
  */
 async function getMatchDetails(apiKey, matchId) {
     if (!apiKey || !matchId) return null;
-    const apiClient = createApiClient(apiKey);
+    const apiClient = getApiClient(apiKey);
     try {
         const response = await apiClient.get(`/matches/${matchId}`);
         return response.data;
@@ -272,77 +273,6 @@ async function getMatchDetails(apiKey, matchId) {
         console.error(`Error fetching match details for ${matchId}:`, error.message);
         return null;
     }
-}
-
-/**
- * Get a player's recent match history.
- * @param {object} apiClient
- * @param {string} playerId
- * @param {number} from  - Unix timestamp (seconds) for lower bound
- * @param {number} limit
- * @returns {Promise<object|null>}
- */
-async function getPlayerHistory(apiClient, playerId, from, limit = 5) {
-    try {
-        const response = await apiClient.get(`/players/${playerId}/history`, {
-            params: { game: GAME, from, limit }
-        });
-        return response.data;
-    } catch (error) {
-        console.error(`Error fetching history for player ${playerId}:`, error.message);
-        return null;
-    }
-}
-
-/** Statuses that mean a match is definitively over */
-const FINISHED_STATUSES = new Set(['FINISHED', 'CANCELLED', 'ABORTED', 'WALKOVER', 'DROPPED']);
-
-/**
- * Check if a player is currently in an active match.
- *
- * Strategy: fetch the player's most recent matches from the last 4 hours,
- * then verify each match's real-time status via getMatchDetails (history
- * status can be stale). Returns the first match that is not finished.
- *
- * @param {string} apiKey
- * @param {string} playerId
- * @returns {Promise<object|null>} Full match object if active, null otherwise
- */
-async function getPlayerActiveMatch(apiKey, playerId) {
-    if (!apiKey || !playerId) return null;
-    const apiClient = createApiClient(apiKey);
-
-    // Query last 4 hours — wide enough to catch a match in progress
-    const from = Math.floor(Date.now() / 1000) - 4 * 60 * 60;
-    const historyData = await getPlayerHistory(apiClient, playerId, from, 5);
-    const items = historyData?.items;
-
-    console.log(`[ACTIVE MATCH] Player ${playerId}: history from=${from}, items=${items?.length ?? 'null'}`);
-    if (items?.length) {
-        for (const item of items) {
-            console.log(`[ACTIVE MATCH]   match_id=${item.match_id} status=${item.status} started_at=${item.started_at} finished_at=${item.finished_at}`);
-        }
-    }
-
-    if (!items?.length) return null;
-
-    // Verify real-time status for each recent match (history status can lag)
-    for (const item of items) {
-        const matchId = item.match_id;
-        if (!matchId) continue;
-
-        const match = await getMatchDetails(apiKey, matchId);
-        console.log(`[ACTIVE MATCH]   getMatchDetails(${matchId}) → status=${match?.status ?? 'null'}`);
-        if (!match) continue;
-
-        if (!FINISHED_STATUSES.has(match.status)) {
-            console.log(`[ACTIVE MATCH]   → ACTIVE match found: ${matchId} (${match.status})`);
-            return match;
-        }
-    }
-
-    console.log(`[ACTIVE MATCH] Player ${playerId}: no active match found`);
-    return null;
 }
 
 /**
@@ -354,7 +284,7 @@ async function getPlayerActiveMatch(apiKey, playerId) {
  */
 async function enrichMatchWithRosterElos(apiKey, match) {
     if (!match) return match;
-    const apiClient = createApiClient(apiKey);
+    const apiClient = getApiClient(apiKey);
 
     const faction1 = match?.teams?.faction1 || {};
     const faction2 = match?.teams?.faction2 || {};
@@ -390,6 +320,5 @@ module.exports = {
     getLeaderboardStats,
     getPlayerIdByNickname,
     getMatchDetails,
-    getPlayerActiveMatch,
     enrichMatchWithRosterElos,
 };

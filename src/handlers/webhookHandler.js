@@ -70,7 +70,7 @@ async function handleWebhook(req, res) {
             null;
         const chatType = message.chat.type;
 
-        const result = await handleCommand(command, chatId, args, apiKey, chatName, chatType);
+        const result = await handleCommand(command, chatId, args, apiKey, chatName);
 
         // ForceReply: ask user to provide the missing argument
         if (result?.type === 'force_reply') {

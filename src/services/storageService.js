@@ -11,6 +11,27 @@ const sentMatchNotificationsCollection = db.collection('sent_match_notifications
 const activeMatchesCollection = db.collection('active_matches');
 
 /**
+ * Wraps a Firestore operation, converting the "database not found" error (code 5)
+ * into a human-readable message so users know to create the database in Native Mode.
+ * @template T
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+async function withFirestore(fn) {
+    try {
+        return await fn();
+    } catch (error) {
+        if (error.code === 5) {
+            throw new Error(
+                `Firestore database not found for project ${config.projectId}. ` +
+                'Please create the database in Native Mode in the Google Cloud Console.'
+            );
+        }
+        throw error;
+    }
+}
+
+/**
  * Add a player to the chat's tracking list and store the chat name.
  * @param {string} chatId
  * @param {{ id: string, nickname: string }} player
@@ -20,26 +41,15 @@ async function addPlayer(chatId, { id, nickname }, chatName) {
     if (!chatId || !id || !nickname) {
         throw new Error('chatId, player.id and player.nickname are required');
     }
-
     const docRef = chatCollection.doc(chatId.toString());
-
-    try {
+    await withFirestore(async () => {
         const doc = await docRef.get();
         const players = doc.exists ? (doc.data().players || []) : [];
-
-        // Skip duplicates by id
         if (players.some(p => p.id === id)) return;
-
         const update = { players: [...players, { id, nickname }] };
         if (chatName) update.name = chatName;
-
         await docRef.set(update, { merge: true });
-    } catch (error) {
-        if (error.code === 5) {
-            throw new Error(`Firestore database not found for project ${config.projectId}. Please create the database in Native Mode in the Google Cloud Console.`);
-        }
-        throw error;
-    }
+    });
 }
 
 /**
@@ -51,21 +61,13 @@ async function removePlayer(chatId, playerId) {
     if (!chatId || !playerId) {
         throw new Error('chatId and playerId are required');
     }
-
     const docRef = chatCollection.doc(chatId.toString());
-
-    try {
+    await withFirestore(async () => {
         const doc = await docRef.get();
         if (!doc.exists) return;
-
         const players = (doc.data().players || []).filter(p => p.id !== playerId);
         await docRef.update({ players });
-    } catch (error) {
-        if (error.code === 5) {
-            throw new Error(`Firestore database not found for project ${config.projectId}. Please create the database in Native Mode in the Google Cloud Console.`);
-        }
-        throw error;
-    }
+    });
 }
 
 /**
@@ -75,63 +77,11 @@ async function removePlayer(chatId, playerId) {
  */
 async function getPlayers(chatId) {
     if (!chatId) return [];
-
-    try {
+    return withFirestore(async () => {
         const doc = await chatCollection.doc(chatId.toString()).get();
         if (!doc.exists) return [];
         return doc.data().players || [];
-    } catch (error) {
-        if (error.code === 5) {
-            throw new Error(`Firestore database not found for project ${config.projectId}. Please create the database in Native Mode in the Google Cloud Console.`);
-        }
-        throw error;
-    }
-}
-
-
-module.exports = {
-    addPlayer,
-    removePlayer,
-    getPlayers,
-    getAllChatIds,
-    getAllSubscribedChatIds,
-    // Subscriptions
-    subscribeChat,
-    unsubscribeChat,
-    getSubscribedChats,
-    getChatSubscriptions,
-    // Match notification deduplication
-    hasNotificationBeenSent,
-    markNotificationSent,
-    getRecentMatchIdsForPlayers,
-    // Active matches tracking
-    storeActiveMatch,
-    getActiveMatchIds,
-    removeActiveMatch,
-};
-
-/**
- * Get all chat IDs from the chats collection.
- * @returns {Promise<string[]>}
- */
-async function getAllChatIds() {
-    const snapshot = await chatCollection.select().get();
-    return snapshot.docs.map(doc => doc.id);
-}
-
-/**
- * Get all unique chat IDs that have at least one player subscription.
- * @returns {Promise<string[]>}
- */
-async function getAllSubscribedChatIds() {
-    const snapshot = await playerSubscriptionsCollection.get();
-    const chatIds = new Set();
-    for (const doc of snapshot.docs) {
-        for (const chatId of (doc.data().subscribedChats || [])) {
-            chatIds.add(chatId);
-        }
-    }
-    return [...chatIds];
+    });
 }
 
 
@@ -295,3 +245,21 @@ async function removeActiveMatch(chatId, matchId) {
     const docId = `${chatId}_${matchId}`;
     await activeMatchesCollection.doc(docId).delete();
 }
+module.exports = {
+    addPlayer,
+    removePlayer,
+    getPlayers,
+    // Subscriptions
+    subscribeChat,
+    unsubscribeChat,
+    getSubscribedChats,
+    getChatSubscriptions,
+    // Match notification deduplication
+    hasNotificationBeenSent,
+    markNotificationSent,
+    getRecentMatchIdsForPlayers,
+    // Active matches tracking
+    storeActiveMatch,
+    getActiveMatchIds,
+    removeActiveMatch,
+};

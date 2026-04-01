@@ -39,54 +39,6 @@ async function setMyCommands() {
     }
 }
 
-/**
- * Set the global default menu button (applies to all chats without a specific override).
- * Used for group chats — per-chat menu buttons are not supported for groups.
- * @param {string} url - Web App URL (without chatId — app reads it from initData)
- */
-async function setDefaultMenuButton(url) {
-    const token = config.telegram_bot_token;
-    if (!token) return;
-
-    try {
-        await axios.post(`https://api.telegram.org/bot${token}/setChatMenuButton`, {
-            menu_button: {
-                type: 'web_app',
-                text: '🎮 Матчи',
-                web_app: { url },
-            },
-        });
-        console.log('[MENU] Global default menu button set');
-    } catch (error) {
-        console.warn(`[MENU] Failed to set default menu button: ${error.response?.data?.description || error.message}`);
-    }
-}
-
-/**
- * Set the bot's menu button for a specific private chat.
- * Only works for private chats — Telegram ignores chat_id for groups.
- * Idempotent: safe to call on every interaction.
- * @param {string|number} chatId
- * @param {string} url - Web App URL (should include ?chatId=...)
- */
-async function setChatMenuButton(chatId, url) {
-    const token = config.telegram_bot_token;
-    if (!token) return;
-
-    try {
-        await axios.post(`https://api.telegram.org/bot${token}/setChatMenuButton`, {
-            chat_id: chatId,
-            menu_button: {
-                type: 'web_app',
-                text: '🎮 Матчи',
-                web_app: { url },
-            },
-        });
-    } catch (error) {
-        console.warn(`[MENU] Could not set menu button for chat ${chatId}: ${error.response?.data?.description || error.message}`);
-    }
-}
-
 async function sendMessage(chatId, text, replyMarkup = null) {
     const token = config.telegram_bot_token;
     if (!token) {
@@ -109,4 +61,4 @@ async function sendMessage(chatId, text, replyMarkup = null) {
     }
 }
 
-module.exports = { sendMessage, setMyCommands, setChatMenuButton, setDefaultMenuButton, fetchBotUsername };
+module.exports = { sendMessage, setMyCommands, fetchBotUsername };

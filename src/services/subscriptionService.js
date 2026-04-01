@@ -1,9 +1,8 @@
 const storageService = require('./storageService');
 const { sendMessage } = require('./telegramService');
 const { getPlayerIdByNickname, getMatchDetails } = require('./faceitService');
+const { MATCH_URL_BASE } = require('../constants');
 const config = require('../config');
-
-const MATCH_URL_BASE = 'https://www.faceit.com/en/cs2/room';
 
 /**
  * Subscribe a chat to match-start notifications for a player.

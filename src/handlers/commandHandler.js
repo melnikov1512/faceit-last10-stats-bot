@@ -1,4 +1,7 @@
-const { getLeaderboardStats, getPlayerIdByNickname, getMatchDetails } = require('../services/faceitService');
+const { getLeaderboardStats, getPlayerIdByNickname } = require('../services/faceitService');
+const { collectMatchIds, fetchActiveMatchDetails } = require('../services/matchService');
+const { MATCH_STATUS_LABELS } = require('../constants');
+const { escapeHtml } = require('../utils');
 const config = require('../config');
 const storageService = require('../services/storageService');
 const { subscribePlayerToChat, unsubscribePlayerFromChat } = require('../services/subscriptionService');
@@ -7,10 +10,6 @@ const { COMMANDS, COMMAND_LIST } = require('../commands');
 function forceReply(commandKey) {
     const cmd = COMMAND_LIST.find(c => c.key === commandKey);
     return { type: 'force_reply', prompt: cmd.prompt, placeholder: cmd.placeholder };
-}
-
-function escapeHtml(str) {
-    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function formatStatsMessage(leaderboard, requestedMatchesCount) {
@@ -163,29 +162,18 @@ async function handleLive(chatId) {
         return '⚠️ Web app не настроен. Установите переменную окружения <code>WEBAPP_URL</code>.';
     }
 
-    // Build active match list for the message text
     let matchListText = '';
     try {
-        const FINISHED = new Set(['FINISHED', 'CANCELLED', 'ABORTED', 'WALKOVER', 'DROPPED']);
-        const STATUS_LABELS = { ONGOING: '🟢 Идёт', READY: '🟠 Старт', VOTING: '🟡 Голосование', CONFIGURING: '⚪ Настройка' };
-
         const subscriptions = await storageService.getChatSubscriptions(chatId);
         if (subscriptions.length) {
             const trackedPlayerIds = new Set(subscriptions.map(s => s.playerId));
-            const sinceTs = Math.floor(Date.now() / 1000) - 6 * 60 * 60;
-            const [storedIds, notifIds] = await Promise.all([
-                storageService.getActiveMatchIds(chatId),
-                storageService.getRecentMatchIdsForPlayers([...trackedPlayerIds], sinceTs),
-            ]);
-            const allIds = [...new Set([...storedIds, ...notifIds])];
+            const allIds = await collectMatchIds(chatId, [...trackedPlayerIds]);
 
             if (allIds.length) {
-                const details = await Promise.all(allIds.map(id => getMatchDetails(config.faceit_api_key, id).catch(() => null)));
-                const active = details.filter(m => m && !FINISHED.has(m.status));
-
+                const active = await fetchActiveMatchDetails(chatId, allIds, config.faceit_api_key);
                 if (active.length) {
-                    const lines = active.map(m => {
-                        const label = STATUS_LABELS[m.status] || m.status;
+                    const lines = active.map(({ match: m }) => {
+                        const label = MATCH_STATUS_LABELS[m.status] || m.status;
                         const f1 = m.teams?.faction1?.name || '?';
                         const f2 = m.teams?.faction2?.name || '?';
                         return `${label}  <b>${escapeHtml(f1)}</b> vs <b>${escapeHtml(f2)}</b>`;
@@ -210,7 +198,7 @@ async function handleLive(chatId) {
     };
 }
 
-async function handleCommand(command, chatId, args, apiKey, chatName, chatType) {
+async function handleCommand(command, chatId, args, apiKey, chatName) {
     switch (command) {
         case COMMANDS.STATS:
             return handleStats(chatId, args, apiKey);
