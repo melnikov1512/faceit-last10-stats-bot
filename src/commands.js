@@ -20,12 +20,16 @@ const COMMAND_LIST = [
         command:     '/add_player',
         args:        '<nickname>',
         description: 'Добавить игрока в список отслеживания',
+        prompt:      'Введите никнейм игрока для добавления:',
+        placeholder: 'nickname',
     },
     {
         key:         'REMOVE_PLAYER',
         command:     '/remove_player',
         args:        '<nickname>',
         description: 'Удалить игрока из списка отслеживания',
+        prompt:      'Введите никнейм игрока для удаления:',
+        placeholder: 'nickname',
     },
     {
         key:         'PLAYERS',
@@ -38,12 +42,16 @@ const COMMAND_LIST = [
         command:     '/subscribe',
         args:        '<nickname>',
         description: 'Подписаться на уведомления о начале матчей игрока',
+        prompt:      'Введите никнейм игрока для подписки:',
+        placeholder: 'nickname',
     },
     {
         key:         'UNSUBSCRIBE',
         command:     '/unsubscribe',
         args:        '<nickname>',
         description: 'Отписаться от уведомлений о матчах игрока',
+        prompt:      'Введите никнейм игрока для отписки:',
+        placeholder: 'nickname',
     },
     {
         key:         'MY_SUBSCRIPTIONS',

@@ -4,6 +4,11 @@ const storageService = require('../services/storageService');
 const { subscribePlayerToChat, unsubscribePlayerFromChat } = require('../services/subscriptionService');
 const { COMMANDS, COMMAND_LIST } = require('../commands');
 
+function forceReply(commandKey) {
+    const cmd = COMMAND_LIST.find(c => c.key === commandKey);
+    return { type: 'force_reply', prompt: cmd.prompt, placeholder: cmd.placeholder };
+}
+
 function escapeHtml(str) {
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -95,7 +100,7 @@ async function handlePlayers(chatId) {
 
 async function handleAddPlayer(chatId, args, apiKey) {
     if (args.length === 0) {
-        return `⚠️ Usage: <code>${COMMANDS.ADD_PLAYER} &lt;nickname&gt;</code>`;
+        return forceReply('ADD_PLAYER');
     } else {
         const nickname = args[0];
         const isValid = await validatePlayer(apiKey, nickname);
@@ -111,7 +116,7 @@ async function handleAddPlayer(chatId, args, apiKey) {
 
 async function handleRemovePlayer(chatId, args) {
     if (args.length === 0) {
-        return `⚠️ Usage: <code>${COMMANDS.REMOVE_PLAYER} &lt;nickname&gt;</code>`;
+        return forceReply('REMOVE_PLAYER');
     } else {
         const nickname = args[0];
         await storageService.removePlayer(chatId, nickname);
@@ -131,14 +136,14 @@ function handleHelp() {
 
 async function handleSubscribe(chatId, args, apiKey) {
     if (args.length === 0) {
-        return `⚠️ Usage: <code>${COMMANDS.SUBSCRIBE} &lt;nickname&gt;</code>`;
+        return forceReply('SUBSCRIBE');
     }
     return subscribePlayerToChat(chatId, args[0], apiKey);
 }
 
 async function handleUnsubscribe(chatId, args, apiKey) {
     if (args.length === 0) {
-        return `⚠️ Usage: <code>${COMMANDS.UNSUBSCRIBE} &lt;nickname&gt;</code>`;
+        return forceReply('UNSUBSCRIBE');
     }
     return unsubscribePlayerFromChat(chatId, args[0], apiKey);
 }

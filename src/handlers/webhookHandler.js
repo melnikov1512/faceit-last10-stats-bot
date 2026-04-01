@@ -1,6 +1,11 @@
 const { handleCommand } = require('./commandHandler');
 const config = require('../config');
-const { COMMANDS } = require('../commands');
+const { COMMANDS, COMMAND_LIST } = require('../commands');
+
+// Map ForceReply prompt texts → command for matching replies
+const PROMPT_TO_COMMAND = Object.fromEntries(
+    COMMAND_LIST.filter(c => c.prompt).map(c => [c.prompt, c])
+);
 
 async function handleWebhook(req, res) {
     const { body } = req;
@@ -17,18 +22,35 @@ async function handleWebhook(req, res) {
         return res.sendStatus(200);
     }
 
-    // Split by whitespace to handle multiple spaces
-    const parts = text.trim().split(/\s+/);
-    if (parts.length === 0) return res.sendStatus(200);
+    let command, args;
 
-    const cmdRaw = parts[0];
-    const args = parts.slice(1);
-    
-    const command = cmdRaw.split('@')[0];
+    // Detect reply to a bot ForceReply prompt
+    const replyTo = message.reply_to_message;
+    if (replyTo?.from?.is_bot && replyTo?.text) {
+        console.log('[ForceReply] Reply to bot detected, replyTo.text:', JSON.stringify(replyTo.text));
+        const matched = PROMPT_TO_COMMAND[replyTo.text];
+        if (matched) {
+            console.log('[ForceReply] Matched command:', matched.command);
+            command = matched.command;
+            args = [text.trim()];
+        } else {
+            console.log('[ForceReply] No matching prompt found. Known prompts:', Object.keys(PROMPT_TO_COMMAND));
+        }
+    }
 
-    const allowedCommands = Object.values(COMMANDS);
-    if (!allowedCommands.includes(command)) {
-        return res.sendStatus(200);
+    // Otherwise parse as a regular command
+    if (!command) {
+        const parts = text.trim().split(/\s+/);
+        if (parts.length === 0) return res.sendStatus(200);
+
+        const cmdRaw = parts[0];
+        args = parts.slice(1);
+        command = cmdRaw.split('@')[0];
+
+        const allowedCommands = Object.values(COMMANDS);
+        if (!allowedCommands.includes(command)) {
+            return res.sendStatus(200);
+        }
     }
 
     try {
@@ -43,16 +65,39 @@ async function handleWebhook(req, res) {
             });
         }
 
-        const responseText = await handleCommand(command, chatId, args, apiKey);
+        const result = await handleCommand(command, chatId, args, apiKey);
 
-        const replyPayload = {
+        // ForceReply: ask user to provide the missing argument
+        if (result?.type === 'force_reply') {
+            const isPrivate = message.chat.type === 'private';
+            if (isPrivate) {
+                // In private chats ForceReply works perfectly
+                return res.json({
+                    method: 'sendMessage',
+                    chat_id: chatId,
+                    text: result.prompt,
+                    reply_markup: {
+                        force_reply: true,
+                    },
+                });
+            } else {
+                // In groups bots don't receive plain-text replies (privacy mode),
+                // so show a usage hint instead
+                return res.json({
+                    method: 'sendMessage',
+                    chat_id: chatId,
+                    text: `${result.prompt}\n\n<code>${command} ${result.placeholder}</code>`,
+                    parse_mode: 'HTML',
+                });
+            }
+        }
+
+        res.json({
             method: 'sendMessage',
             chat_id: chatId,
-            text: responseText,
+            text: result,
             parse_mode: 'HTML'
-        };
-
-        res.json(replyPayload);
+        });
     } catch (error) {
         console.error(`Error processing ${command}:`, error);
         if (error.stack) {
