@@ -4,7 +4,6 @@
     "main": "index.js",
     "scripts": {
         "start": "node index.js",
-        "migrate": "node scripts/migrate-chats.js",
         "predev": "node scripts/set-webhook.js",
         "dev": "NODE_ENV=development concurrently --names \"ngrok,server\" --prefix-colors \"cyan,green\" \"ngrok http --url=huddlingly-shirty-chantal.ngrok-free.dev 8080\" \"node index.js\""
     },

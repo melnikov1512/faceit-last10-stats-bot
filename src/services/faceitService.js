@@ -242,19 +242,6 @@ async function getLeaderboardStats(apiKey, players, limit = 10) {
 }
 
 /**
- * Validate if a player exists on FACEIT
- * @param {string} apiKey 
- * @param {string} nickname 
- * @returns {Promise<boolean>}
- */
-async function validatePlayer(apiKey, nickname) {
-    if (!apiKey) return false;
-    const apiClient = createApiClient(apiKey);
-    const info = await getPlayerInfo(apiClient, nickname);
-    return !!info;
-}
-
-/**
  * Get a player's FACEIT player_id by nickname
  * @param {string} apiKey
  * @param {string} nickname
@@ -289,7 +276,6 @@ async function getMatchDetails(apiKey, matchId) {
 
 module.exports = {
     getLeaderboardStats,
-    validatePlayer,
     getPlayerIdByNickname,
     getMatchDetails
 };
