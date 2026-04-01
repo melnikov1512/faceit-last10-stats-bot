@@ -65,7 +65,11 @@ async function handleWebhook(req, res) {
             });
         }
 
-        const result = await handleCommand(command, chatId, args, apiKey);
+        const chatName = message.chat.title ||
+            [message.chat.first_name, message.chat.last_name].filter(Boolean).join(' ') ||
+            null;
+
+        const result = await handleCommand(command, chatId, args, apiKey, chatName);
 
         // ForceReply: ask user to provide the missing argument
         if (result?.type === 'force_reply') {

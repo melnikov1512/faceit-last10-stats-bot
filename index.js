@@ -7,9 +7,11 @@
 require('dotenv').config();
 const app = require('./src/app');
 const { setMyCommands } = require('./src/services/telegramService');
+const { migrateChats } = require('./scripts/migrate-chats');
 
-// Register bot commands on every startup so the "/" menu stays up to date
+// Run on every startup — both are idempotent and non-blocking
 setMyCommands();
+migrateChats();
 
 // Start server on port 8080 if run directly
 if (require.main === module) {

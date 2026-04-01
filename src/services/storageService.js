@@ -10,24 +10,31 @@ const playerSubscriptionsCollection = db.collection('player_subscriptions');
 const sentMatchNotificationsCollection = db.collection('sent_match_notifications');
 
 /**
- * Add a player to the chat's player list
- * @param {string} chatId 
- * @param {string} playerNickname 
+ * Add a player to the chat's tracking list and store the chat name.
+ * @param {string} chatId
+ * @param {{ id: string, nickname: string }} player
+ * @param {string|null} chatName
  */
-async function addPlayer(chatId, playerNickname) {
-    if (!chatId || !playerNickname) {
-        throw new Error('chatId and playerNickname are required');
+async function addPlayer(chatId, { id, nickname }, chatName) {
+    if (!chatId || !id || !nickname) {
+        throw new Error('chatId, player.id and player.nickname are required');
     }
 
     const docRef = chatCollection.doc(chatId.toString());
-    
+
     try {
-        // Add player to the array
-        await docRef.set({
-            players: Firestore.FieldValue.arrayUnion(playerNickname)
-        }, { merge: true }); // Create if doesn't exist, merge players if exists
+        const doc = await docRef.get();
+        const players = doc.exists ? (doc.data().players || []) : [];
+
+        // Skip duplicates by id
+        if (players.some(p => p.id === id)) return;
+
+        const update = { players: [...players, { id, nickname }] };
+        if (chatName) update.name = chatName;
+
+        await docRef.set(update, { merge: true });
     } catch (error) {
-        if (error.code === 5) { // NOT_FOUND
+        if (error.code === 5) {
             throw new Error(`Firestore database not found for project ${config.projectId}. Please create the database in Native Mode in the Google Cloud Console.`);
         }
         throw error;
@@ -35,50 +42,46 @@ async function addPlayer(chatId, playerNickname) {
 }
 
 /**
- * Remove a player from the chat's player list
- * @param {string} chatId 
- * @param {string} playerNickname 
+ * Remove a player from the chat's tracking list by player ID.
+ * @param {string} chatId
+ * @param {string} playerId
  */
-async function removePlayer(chatId, playerNickname) {
-    if (!chatId || !playerNickname) {
-        throw new Error('chatId and playerNickname are required');
+async function removePlayer(chatId, playerId) {
+    if (!chatId || !playerId) {
+        throw new Error('chatId and playerId are required');
     }
 
     const docRef = chatCollection.doc(chatId.toString());
-   
+
     try {
-        // Remove player from the array
-        await docRef.update({
-            players: Firestore.FieldValue.arrayRemove(playerNickname)
-        });
+        const doc = await docRef.get();
+        if (!doc.exists) return;
+
+        const players = (doc.data().players || []).filter(p => p.id !== playerId);
+        await docRef.update({ players });
     } catch (error) {
         if (error.code === 5) {
-             throw new Error(`Firestore database not found for project ${config.projectId}. Please create the database in Native Mode in the Google Cloud Console.`);
+            throw new Error(`Firestore database not found for project ${config.projectId}. Please create the database in Native Mode in the Google Cloud Console.`);
         }
         throw error;
     }
 }
 
 /**
- * Get the list of players for a chat
- * @param {string} chatId 
- * @returns {Promise<string[]>} Array of player nicknames
+ * Get the list of tracked players for a chat.
+ * @param {string} chatId
+ * @returns {Promise<Array<{ id: string, nickname: string }>>}
  */
 async function getPlayers(chatId) {
     if (!chatId) return [];
 
     try {
         const doc = await chatCollection.doc(chatId.toString()).get();
-        
-        if (!doc.exists) {
-            return [];
-        }
-        
-        const data = doc.data();
-        return data.players || [];
+        if (!doc.exists) return [];
+        return doc.data().players || [];
     } catch (error) {
-         if (error.code === 5) {
-             throw new Error(`Firestore database not found for project ${config.projectId}. Please create the database in Native Mode in the Google Cloud Console.`);
+        if (error.code === 5) {
+            throw new Error(`Firestore database not found for project ${config.projectId}. Please create the database in Native Mode in the Google Cloud Console.`);
         }
         throw error;
     }

@@ -1,4 +1,4 @@
-const { getLeaderboardStats, validatePlayer } = require('../services/faceitService');
+const { getLeaderboardStats, getPlayerIdByNickname } = require('../services/faceitService');
 const config = require('../config');
 const storageService = require('../services/storageService');
 const { subscribePlayerToChat, unsubscribePlayerFromChat } = require('../services/subscriptionService');
@@ -82,11 +82,7 @@ async function handleStats(chatId, args, apiKey) {
         }
     }
 
-    const leaderboard = await getLeaderboardStats(
-        apiKey,
-        players,
-        matchesCount
-        );
+    const leaderboard = await getLeaderboardStats(apiKey, players, matchesCount);
     return formatStatsMessage(leaderboard, matchesCount);
 }
 
@@ -95,33 +91,38 @@ async function handlePlayers(chatId) {
     if (players.length === 0) {
         return `⚠️ No players tracked in this chat. Use <code>${COMMANDS.ADD_PLAYER} &lt;nickname&gt;</code> to start.`;
     }
-    return `📋 <b>Tracked Players:</b>\n\n` + players.map(p => `• <code>${escapeHtml(p)}</code>`).join('\n');
+    return `📋 <b>Tracked Players:</b>\n\n` + players.map(p => `• <code>${escapeHtml(p.nickname)}</code>`).join('\n');
 }
 
-async function handleAddPlayer(chatId, args, apiKey) {
+async function handleAddPlayer(chatId, args, apiKey, chatName) {
     if (args.length === 0) {
         return forceReply('ADD_PLAYER');
-    } else {
-        const nickname = args[0];
-        const isValid = await validatePlayer(apiKey, nickname);
-
-        if (isValid) {
-            await storageService.addPlayer(chatId, nickname);
-            return `✅ Player <b>${escapeHtml(nickname)}</b> added to the list.`;
-        } else {
-            return `❌ Player <b>${escapeHtml(nickname)}</b> not found on FACEIT.`;
-        }
     }
+
+    const playerData = await getPlayerIdByNickname(apiKey, args[0]);
+    if (!playerData) {
+        return `❌ Player <b>${escapeHtml(args[0])}</b> not found on FACEIT.`;
+    }
+
+    await storageService.addPlayer(chatId, { id: playerData.playerId, nickname: playerData.nickname }, chatName);
+    return `✅ Player <b>${escapeHtml(playerData.nickname)}</b> added to the list.`;
 }
 
 async function handleRemovePlayer(chatId, args) {
     if (args.length === 0) {
         return forceReply('REMOVE_PLAYER');
-    } else {
-        const nickname = args[0];
-        await storageService.removePlayer(chatId, nickname);
-        return `🗑️ Player <b>${escapeHtml(nickname)}</b> removed from the list.`;
     }
+
+    const players = await storageService.getPlayers(chatId);
+    const inputNickname = args[0].toLowerCase();
+    const player = players.find(p => p.nickname?.toLowerCase() === inputNickname);
+
+    if (!player) {
+        return `❌ Player <b>${escapeHtml(args[0])}</b> is not in the tracking list.`;
+    }
+
+    await storageService.removePlayer(chatId, player.id);
+    return `🗑️ Player <b>${escapeHtml(player.nickname)}</b> removed from the list.`;
 }
 
 function handleHelp() {
@@ -156,12 +157,12 @@ async function handleMySubscriptions(chatId) {
     return `🔔 <b>Active subscriptions:</b>\n\n` + subscriptions.map(s => `• <code>${escapeHtml(s.nickname)}</code>`).join('\n');
 }
 
-async function handleCommand(command, chatId, args, apiKey) {
+async function handleCommand(command, chatId, args, apiKey, chatName) {
     switch (command) {
         case COMMANDS.STATS:
             return handleStats(chatId, args, apiKey);
         case COMMANDS.ADD_PLAYER:
-            return handleAddPlayer(chatId, args, apiKey);
+            return handleAddPlayer(chatId, args, apiKey, chatName);
         case COMMANDS.REMOVE_PLAYER:
             return handleRemovePlayer(chatId, args);
         case COMMANDS.PLAYERS:

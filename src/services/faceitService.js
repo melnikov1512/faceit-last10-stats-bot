@@ -52,6 +52,20 @@ async function getPlayerInfo(apiClient, nickname) {
 }
 
 /**
+ * Get user info by FACEIT player ID.
+ * Preferred over nickname lookup — more reliable and faster.
+ */
+async function getPlayerInfoById(apiClient, playerId) {
+    try {
+        const response = await apiClient.get(`/players/${playerId}`);
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching player info for id ${playerId}:`, error.message);
+        return null;
+    }
+}
+
+/**
  * Get player stats for a game (CS2)
  * This endpoint returns the last N matches with stats directly.
  */
@@ -152,40 +166,36 @@ function calculateAverageStats(statsArray) {
 }
 
 /**
- * Get last N matches and player stats
+ * Get last N matches and player stats.
+ * Accepts a player object { id, nickname } — uses id directly,
+ * fetching player info, game stats, and ELO timeline in parallel.
+ * @param {object} player - { id: string, nickname: string }
  */
-async function getPlayerStats(apiClient, nickname, matchesCount) {
+async function getPlayerStats(apiClient, player, matchesCount) {
+    const { id: playerId, nickname } = player;
     try {
-        const playerInfo = await getPlayerInfo(apiClient, nickname);
-        if (!playerInfo) return null;
-
-        const playerId   = playerInfo.player_id;
-        const currentElo = playerInfo.games?.cs2?.faceit_elo ?? null;
-
-        // Fetch game stats and ELO timeline in parallel
-        const [statsData, eloItems] = await Promise.all([
+        // All three requests fire in parallel — faster than the old sequential approach
+        const [playerInfo, statsData, eloItems] = await Promise.all([
+            getPlayerInfoById(apiClient, playerId),
             getPlayerGameStats(apiClient, playerId, matchesCount),
-            getPlayerEloTimeline(playerId, matchesCount)
+            getPlayerEloTimeline(playerId, matchesCount),
         ]);
+
+        const currentElo = playerInfo?.games?.cs2?.faceit_elo ?? null;
 
         if (!statsData?.items?.length) return null;
 
         const allStats = statsData.items.map(item => item.stats);
         if (!allStats.length) return null;
 
-        // ELO change = sum of elo_delta for each match in the window.
-        // This is exact and doesn't require an N+1 baseline fetch.
         let eloChange = null;
         if (Array.isArray(eloItems) && eloItems.length > 0) {
             const windowItems = eloItems.slice(0, matchesCount);
-            let sum       = 0;
+            let sum = 0;
             let validCount = 0;
             for (const item of windowItems) {
                 const delta = parseInt(item.elo_delta, 10);
-                if (!isNaN(delta)) {
-                    sum += delta;
-                    validCount++;
-                }
+                if (!isNaN(delta)) { sum += delta; validCount++; }
             }
             if (validCount > 0) eloChange = sum;
         }
@@ -203,11 +213,11 @@ async function getPlayerStats(apiClient, nickname, matchesCount) {
 }
 
 /**
- * Main function to get leaderboard stats
- * @param {string} apiKey - FACEIT API Key
- * @param {string[]} players - List of player nicknames
- * @param {number} limit - Number of matches to analyze
- * @returns {Promise<Array>} - Sorted array of player stats
+ * Main function to get leaderboard stats.
+ * @param {string} apiKey
+ * @param {Array<{ id: string, nickname: string }>} players
+ * @param {number} limit
+ * @returns {Promise<Array>} Sorted array of player stats
  */
 async function getLeaderboardStats(apiKey, players, limit = 10) {
     if (!apiKey) {
@@ -221,7 +231,7 @@ async function getLeaderboardStats(apiKey, players, limit = 10) {
     const results = await processInChunks(
         players,
         10,
-        username => getPlayerStats(apiClient, username, limit)
+        player => getPlayerStats(apiClient, player, limit)
     );
     
     // Filter out null results (failed requests)

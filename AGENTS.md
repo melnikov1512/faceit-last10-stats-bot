@@ -36,11 +36,11 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - **Stats Module**: `src/services/faceitService.js`. Calculates average stats (ADR, K/D, kills, ELO, ELO change) from the last N matches.
     - **Faceit API**: Uses v4 `/players?nickname={nick}&game=cs2`, `/players/{id}/games/cs2/stats?limit={N}`, and the unofficial ELO timeline endpoint `https://api.faceit.com/stats/v1/stats/time/users/{playerId}/games/cs2`. Match details fetched via `/matches/{matchId}` as fallback.
     - **ELO API Note**: The unofficial ELO timeline endpoint is fetched using Node.js native `fetch` (not axios) to bypass Cloudflare protection.
-    - **Batching**: Processes player lookups in chunks of 10 to manage API rate limits. Game stats and ELO timeline fetched in parallel per player.
+    - **Batching**: Processes player lookups in chunks of 10 to manage API rate limits. For each player, `getPlayerInfoById`, game stats, and ELO timeline are fetched in parallel (3 concurrent requests per player, no sequential nickname→id resolution needed).
     - **Output**: Sorted by ADR descending. Formatted as an HTML-escaped table: `Name | ADR | K/D | Kills | ELO | ±ELO`.
 - **Storage Module**: `src/services/storageService.js`. Manages per-chat data using Firestore.
     - **Collections**:
-        - `chats` — Document ID = `chatId`. Structure: `{ players: ["nickname1", "nickname2"] }`.
+        - `chats` — Document ID = `chatId`. Structure: `{ name: "Chat Name", players: [{ id: "faceit-uuid", nickname: "s1mple" }] }`.
         - `player_subscriptions` — Document ID = `playerId` (FACEIT GUID). Structure: `{ playerId, nickname, subscribedChats: [chatIds] }`.
         - `sent_match_notifications` — Document ID = `{matchId}_{chatId}`. Fields: `matchId`, `chatId`, `sentAt`. Used for deduplication.
     - **Requirement**: Firestore database must be created in **Native Mode**.
@@ -70,6 +70,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - **npm Scripts**:
     - `npm start` — Production start (`node index.js`).
     - `npm run dev` — Local dev: runs `set-webhook.js` (predev), then starts ngrok tunnel and `node index.js` concurrently.
+    - `npm run migrate` — Run DB migration manually (`scripts/migrate-chats.js`).
 - **Request Handling**:
   - `POST /`: Handles Telegram updates (routed to `src/handlers/webhookHandler.js`).
   - `POST /webhook/faceit`: Handles FACEIT match events (routed to `src/handlers/faceitWebhookHandler.js`).
@@ -119,5 +120,6 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/constants.js`: Реэкспорт `COMMANDS` из `src/commands.js` (обратная совместимость).
 - `config.json`: Master configuration file (default values; no secrets).
 - `scripts/set-webhook.js`: Registers ngrok URL as Telegram webhook (runs as `predev`).
+- `scripts/migrate-chats.js`: Migrates `chats` collection from `players: string[]` to `players: [{id, nickname}]`. Idempotent — safe to run multiple times. Runs automatically on server startup and via `npm run migrate`.
 - `ai-files/LOCAL_TESTING.md`: Local testing guide (Russian).
 - `ai-files/faceit-open-api.json`: OpenAPI 3.0 spec for FACEIT Data API v4.
