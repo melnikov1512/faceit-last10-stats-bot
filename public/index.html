@@ -277,23 +277,66 @@
             text-decoration: none;
         }
 
-        /* ── Refresh ── */
+        /* ── Refresh bar ── */
         .refresh-bar {
-            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
             margin-bottom: 12px;
+            padding: 0 4px;
         }
 
-        .refresh-btn {
+        .refresh-icon-btn {
             background: transparent;
-            border: 1px solid rgba(255,255,255,0.15);
+            border: none;
             color: var(--hint);
-            font-size: 13px;
-            padding: 6px 16px;
-            border-radius: 8px;
             cursor: pointer;
+            width: 30px; height: 30px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 50%;
+            flex-shrink: 0;
+            padding: 0;
+            transition: color 0.2s;
         }
 
-        .refresh-btn:active { opacity: 0.7; }
+        .refresh-icon-btn:active { color: var(--button); }
+
+        .refresh-icon-btn svg {
+            transition: transform 0.3s;
+        }
+
+        .refresh-icon-btn.spinning svg {
+            animation: spin 0.8s linear infinite;
+        }
+
+        .countdown {
+            font-size: 12px;
+            color: var(--hint);
+            min-width: 28px;
+            text-align: left;
+        }
+
+        /* ── Content overlay on refresh ── */
+        .content-area {
+            position: relative;
+        }
+
+        .content-area.refreshing::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.35);
+            border-radius: 14px;
+            pointer-events: none;
+            animation: fadeInOverlay 0.25s ease forwards;
+            z-index: 10;
+        }
+
+        @keyframes fadeInOverlay {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
 
         .tracked-label {
             font-size: 11px;
@@ -305,6 +348,17 @@
 </head>
 <body>
     <h1>🎮 Активные матчи</h1>
+    <div id="refresh-bar" class="refresh-bar" style="display:none">
+        <button id="refresh-btn" class="refresh-icon-btn" onclick="manualRefresh()" title="Обновить">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M23 4v6h-6"/>
+                <path d="M1 20v-6h6"/>
+                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10"/>
+                <path d="M20.49 15a9 9 0 01-14.85 3.36L1 14"/>
+            </svg>
+        </button>
+        <span id="countdown" class="countdown">60с</span>
+    </div>
     <div id="app"></div>
 
     <script>
@@ -322,26 +376,61 @@
             || null;
         if (chatId) chatId = String(chatId);
 
-        const app = document.getElementById('app');
+        const app       = document.getElementById('app');
+        const refreshBar = document.getElementById('refresh-bar');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const countdownEl = document.getElementById('countdown');
 
+        const AUTO_REFRESH_SEC = 60;
+        let countdownVal  = AUTO_REFRESH_SEC;
+        let countdownTimer = null;
+        let autoRefreshTimer = null;
+        let hasContent = false; // true after first successful or empty load
+
+        // ── Timer ────────────────────────────────────────────────
+        function startAutoRefresh() {
+            clearInterval(countdownTimer);
+            clearTimeout(autoRefreshTimer);
+            countdownVal = AUTO_REFRESH_SEC;
+            countdownEl.textContent = `${countdownVal}с`;
+
+            countdownTimer = setInterval(() => {
+                countdownVal--;
+                countdownEl.textContent = `${countdownVal}с`;
+                if (countdownVal <= 0) clearInterval(countdownTimer);
+            }, 1000);
+
+            autoRefreshTimer = setTimeout(() => loadMatches(true), AUTO_REFRESH_SEC * 1000);
+        }
+
+        function setRefreshing(on) {
+            refreshBtn.classList.toggle('spinning', on);
+            app.classList.toggle('content-area', hasContent);
+            app.classList.toggle('refreshing', on && hasContent);
+        }
+
+        function manualRefresh() {
+            loadMatches(hasContent); // overlay only if content already showing
+        }
+
+        // ── Helpers ──────────────────────────────────────────────
         function showState(html) {
             app.innerHTML = `<div class="state">${html}</div>`;
         }
 
         function skillClass(level) {
             const l = parseInt(level);
-            if (!l) return '';
-            return `sl-${l}`;
+            return l ? `sl-${l}` : '';
         }
 
         function statusLabel(status) {
-            const labels = {
-                ONGOING: 'ИДЁТ',
-                READY: 'СТАРТ',
-                VOTING: 'ГОЛОСОВАНИЕ',
-                CONFIGURING: 'НАСТРОЙКА',
-            };
-            return labels[status] || status;
+            return { ONGOING: 'ИДЁТ', READY: 'СТАРТ', VOTING: 'ГОЛОСОВАНИЕ', CONFIGURING: 'НАСТРОЙКА' }[status] || status;
+        }
+
+        function escHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
         function renderAvatar(player) {
@@ -387,15 +476,10 @@
         }
 
         function renderTeamColumn(team, colorClass) {
-            const avgElo = team.stats?.rating
-                ? `${team.stats.rating} avg ELO`
-                : '';
+            const avgElo  = team.stats?.rating ? `${team.stats.rating} avg ELO` : '';
             const winProb = team.stats?.winProbability != null
-                ? ` · ${Math.round(team.stats.winProbability * 100)}% win`
-                : '';
-            const roster = (team.roster || [])
-                .map(renderPlayerRow)
-                .join('');
+                ? ` · ${Math.round(team.stats.winProbability * 100)}% win` : '';
+            const roster  = (team.roster || []).map(renderPlayerRow).join('');
             return `
                 <div class="team-col">
                     <div class="team-header">
@@ -408,14 +492,11 @@
         }
 
         function renderMatch(match) {
-            const metaParts = [match.region, match.best_of ? `BO${match.best_of}` : null].filter(Boolean);
-            const trackedLabel = match.trackedPlayers?.length
-                ? `👀 ${match.trackedPlayers.join(', ')}`
-                : '';
+            const metaParts   = [match.region, match.best_of ? `BO${match.best_of}` : null].filter(Boolean);
+            const trackedLabel = match.trackedPlayers?.length ? `👀 ${match.trackedPlayers.join(', ')}` : '';
             const score = match.status === 'ONGOING'
                 ? renderScore(match.results, match.teams.faction1.name, match.teams.faction2.name)
                 : '';
-
             return `
                 <div class="match-card">
                     <div class="match-header">
@@ -437,62 +518,44 @@
                 </div>`;
         }
 
-        function escHtml(str) {
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;');
-        }
+        // ── Load ─────────────────────────────────────────────────
+        async function loadMatches(overlay = false) {
+            if (!chatId) { showState('<span>❌ chatId не передан</span>'); return; }
 
-        async function loadMatches() {
-            if (!chatId) {
-                showState('<span>❌ chatId не передан</span>');
-                return;
+            setRefreshing(true);
+            if (!overlay) {
+                showState('<div class="spinner"></div><span>Загрузка матчей…</span>');
             }
-
-            showState('<div class="spinner"></div><span>Загрузка матчей…</span>');
 
             try {
                 const res = await fetch(`/api/active-matches?chatId=${encodeURIComponent(chatId)}`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
 
-                if (!data.matches?.length) {
-                    app.innerHTML = `
-                        <div class="state">
-                            <span>😴 Нет активных матчей</span>
-                            <span style="font-size:13px">Ни один из подписанных игроков сейчас не играет</span>
-                        </div>
-                        <div class="refresh-bar">
-                            <button class="refresh-btn" onclick="loadMatches()">🔄 Обновить</button>
-                        </div>`;
-                    return;
-                }
+                hasContent = true;
+                refreshBar.style.display = 'flex';
 
-                app.innerHTML = `
-                    <div class="refresh-bar">
-                        <button class="refresh-btn" onclick="loadMatches()">🔄 Обновить</button>
-                    </div>
-                    ${data.matches.map(renderMatch).join('')}`;
-            } catch (err) {
-                app.innerHTML = `
-                    <div class="state">
-                        <span>⚠️ Ошибка загрузки</span>
-                        <span style="font-size:13px">${escHtml(err.message)}</span>
-                    </div>
-                    <div class="refresh-bar">
-                        <button class="refresh-btn" onclick="loadMatches()">🔄 Обновить</button>
+                if (!data.matches?.length) {
+                    app.innerHTML = `<div class="state">
+                        <span>😴 Нет активных матчей</span>
+                        <span style="font-size:13px">Ни один из подписанных игроков сейчас не играет</span>
                     </div>`;
+                } else {
+                    app.innerHTML = data.matches.map(renderMatch).join('');
+                }
+            } catch (err) {
+                if (!overlay) {
+                    showState(`<span>⚠️ Ошибка загрузки</span><span style="font-size:13px">${escHtml(err.message)}</span>`);
+                }
+            } finally {
+                setRefreshing(false);
+                startAutoRefresh();
             }
         }
 
-        // Initialize Telegram Mini App
-        if (window.Telegram?.WebApp) {
-            Telegram.WebApp.ready();
-        }
-
-        loadMatches();
+        // ── Init ─────────────────────────────────────────────────
+        if (window.Telegram?.WebApp) Telegram.WebApp.ready();
+        loadMatches(false);
     </script>
 </body>
 </html>

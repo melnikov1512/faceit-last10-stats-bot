@@ -155,11 +155,19 @@ async function handleMatchEvent(payload) {
         ];
         const text = lines.join('\n');
 
-        // Build inline keyboard: url button (works in all chat types) + match link
+        // Build inline keyboard: Mini App button (web_app for private, t.me link for groups)
         const inlineButtons = [];
         if (config.webapp_url) {
-            const webAppUrl = `${config.webapp_url}?chatId=${chatId}`;
-            inlineButtons.push({ text: '📊 Составы и счёт', url: webAppUrl });
+            const isGroup = Number(chatId) < 0;
+            if (isGroup && config.bot_username) {
+                // Groups don't support web_app inline buttons — use t.me direct link
+                const directLink = `https://t.me/${config.bot_username}?startapp=${encodeURIComponent(chatId)}&mode=compact`;
+                inlineButtons.push({ text: '📊 Составы и счёт', url: directLink });
+            } else if (!isGroup) {
+                // Private chats support web_app inline buttons
+                const webAppUrl = `${config.webapp_url}?chatId=${chatId}`;
+                inlineButtons.push({ text: '📊 Составы и счёт', web_app: { url: webAppUrl } });
+            }
         }
         const replyMarkup = inlineButtons.length
             ? { inline_keyboard: [inlineButtons] }
