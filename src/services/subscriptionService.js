@@ -137,21 +137,29 @@ async function handleMatchEvent(payload) {
         const team1TrackedPlayers = nicknames.filter(n => faction1.roster?.some(p => p.nickname === n));
         const team2TrackedPlayers = nicknames.filter(n => faction2.roster?.some(p => p.nickname === n));
 
-        const formatTeamLine = (emoji, name, elo, winProb, trackedPlayers) => {
+        // 🟠 for team with tracked player (FACEIT orange), ⬛ for opponent
+        const team1HasTracked = team1TrackedPlayers.length > 0;
+        const team2HasTracked = team2TrackedPlayers.length > 0;
+
+        const formatTeamLine = (name, elo, winProb, trackedPlayers, hasTracked) => {
+            const teamEmoji = hasTracked ? '🟠' : '⬛';
             const eloPart = elo ? `${elo} ELO` : null;
-            const winPart = winProb != null ? `${Math.round(winProb * 100)}% win` : null;
-            const playerPart = trackedPlayers?.length > 0 ? `← ${trackedPlayers.map(n => `*${n}*`).join(', ')}` : null;
-            return [emoji, `*${name}*`, eloPart, winPart, playerPart].filter(Boolean).join('  ');
+            const winPart = winProb != null ? `${Math.round(winProb * 100)}%` : null;
+            const playerPart = trackedPlayers?.length > 0
+                ? `⭐ ${trackedPlayers.map(n => `*${n}*`).join(', ')}`
+                : null;
+            return [teamEmoji, `*${name}*`, [eloPart, winPart].filter(Boolean).join(' · '), playerPart]
+                .filter(Boolean).join('  ');
         };
 
         const lines = [
-            `🎮 ${playerList} ${verb} матч!`,
-            ...(metaParts.length ? [metaParts.join(' • ')] : []),
+            `⚡️ ${playerList} ${verb} матч!`,
+            ...(metaParts.length ? [`🏆 ${metaParts.join(' · ')}`] : []),
             '',
-            formatTeamLine('🔵', team1Name, team1Elo, team1WinProb, team1TrackedPlayers),
-            formatTeamLine('🔴', team2Name, team2Elo, team2WinProb, team2TrackedPlayers),
+            formatTeamLine(team1Name, team1Elo, team1WinProb, team1TrackedPlayers, team1HasTracked),
+            formatTeamLine(team2Name, team2Elo, team2WinProb, team2TrackedPlayers, team2HasTracked),
             '',
-            `🔗 [Смотреть матч](${MATCH_URL_BASE}/${matchId})`,
+            `🎮 [Открыть матч](${MATCH_URL_BASE}/${matchId})`,
         ];
         const text = lines.join('\n');
 
