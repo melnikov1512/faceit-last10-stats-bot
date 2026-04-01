@@ -1,5 +1,17 @@
 # AGENTS.md - Faceit Last 10 Stats Bot
 
+## AI Agent Rules
+
+> These rules are mandatory and must be followed in every session.
+
+1. **Never commit automatically.** Do not run `git commit` (or any command that creates a commit) without explicit user instruction. Always show the proposed changes and wait for approval before committing.
+
+2. **Tool priority order.** When solving a task, prefer tools in this order:
+   1. Built-in tools (grep, glob, view, edit, create, bash, sql, etc.)
+   2. MCP servers (GitHub MCP, etc.)
+   3. Ecosystem CLI tools (`npm`, `git`, `gcloud`, etc.)
+   4. Custom scripts — use only as a last resort when built-in tools cannot accomplish the task.
+
 ## Project Overview
 This is a Node.js Telegram bot designed to run as a **Google Cloud Function** (HTTP Trigger). It fetches **FACEIT Data API v4** statistics for **Counter-Strike 2 (CS2)** and communicates with Telegram via **Webhook Replies**.
 
