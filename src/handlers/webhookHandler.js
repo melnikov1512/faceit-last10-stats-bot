@@ -108,7 +108,7 @@ async function handleWebhook(req, res) {
                 // Direct link opens Mini App inside Telegram; chatId passed as start_param
                 const username = config.bot_username;
                 const directUrl = username
-                    ? `https://t.me/${username}?startapp=${encodeURIComponent(chatId)}`
+                    ? `https://t.me/${username}?startapp=${encodeURIComponent(chatId)}&mode=compact`
                     : result.url;
                 button = { text: '📊 Открыть', url: directUrl };
             }
