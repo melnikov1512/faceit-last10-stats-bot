@@ -2,7 +2,7 @@ const path = require('path');
 const express = require('express');
 const { handleWebhook } = require('./handlers/webhookHandler');
 const { handleFaceitWebhook } = require('./handlers/faceitWebhookHandler');
-const { getActiveMatches } = require('./handlers/apiHandler');
+const { getActiveMatches, getMatch } = require('./handlers/apiHandler');
 
 const app = express();
 
@@ -19,6 +19,9 @@ app.post('/webhook/faceit', handleFaceitWebhook);
 
 // REST API: active matches for a chat
 app.get('/api/active-matches', getActiveMatches);
+
+// REST API: single match by ID (always, even if finished)
+app.get('/api/match', getMatch);
 
 
 

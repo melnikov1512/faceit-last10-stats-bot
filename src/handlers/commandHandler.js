@@ -1,4 +1,4 @@
-const { getLeaderboardStats, getPlayerIdByNickname } = require('../services/faceitService');
+const { getLeaderboardStats, getPlayerIdByNickname, getMatchDetails } = require('../services/faceitService');
 const config = require('../config');
 const storageService = require('../services/storageService');
 const { subscribePlayerToChat, unsubscribePlayerFromChat } = require('../services/subscriptionService');
@@ -157,15 +157,56 @@ async function handleMySubscriptions(chatId) {
     return `🔔 <b>Active subscriptions:</b>\n\n` + subscriptions.map(s => `• <code>${escapeHtml(s.nickname)}</code>`).join('\n');
 }
 
-function handleLive(chatId) {
+async function handleLive(chatId) {
     const url = config.webapp_url;
     if (!url) {
         return '⚠️ Web app не настроен. Установите переменную окружения <code>WEBAPP_URL</code>.';
     }
+
+    // Build active match list for the message text
+    let matchListText = '';
+    try {
+        const FINISHED = new Set(['FINISHED', 'CANCELLED', 'ABORTED', 'WALKOVER', 'DROPPED']);
+        const STATUS_LABELS = { ONGOING: '🟢 Идёт', READY: '🟠 Старт', VOTING: '🟡 Голосование', CONFIGURING: '⚪ Настройка' };
+
+        const subscriptions = await storageService.getChatSubscriptions(chatId);
+        if (subscriptions.length) {
+            const trackedPlayerIds = new Set(subscriptions.map(s => s.playerId));
+            const sinceTs = Math.floor(Date.now() / 1000) - 6 * 60 * 60;
+            const [storedIds, notifIds] = await Promise.all([
+                storageService.getActiveMatchIds(chatId),
+                storageService.getRecentMatchIdsForPlayers([...trackedPlayerIds], sinceTs),
+            ]);
+            const allIds = [...new Set([...storedIds, ...notifIds])];
+
+            if (allIds.length) {
+                const details = await Promise.all(allIds.map(id => getMatchDetails(config.faceit_api_key, id).catch(() => null)));
+                const active = details.filter(m => m && !FINISHED.has(m.status));
+
+                if (active.length) {
+                    const lines = active.map(m => {
+                        const label = STATUS_LABELS[m.status] || m.status;
+                        const f1 = m.teams?.faction1?.name || '?';
+                        const f2 = m.teams?.faction2?.name || '?';
+                        return `${label}  <b>${escapeHtml(f1)}</b> vs <b>${escapeHtml(f2)}</b>`;
+                    });
+                    matchListText = '\n\n' + lines.join('\n');
+                } else {
+                    matchListText = '\n\n<i>Нет активных матчей</i>';
+                }
+            } else {
+                matchListText = '\n\n<i>Нет активных матчей</i>';
+            }
+        }
+    } catch (e) {
+        // non-critical — just omit the list
+    }
+
     return {
         type: 'web_app',
-        text: '🎮 Активные матчи подписанных игроков',
+        text: `🎮 Активные матчи подписанных игроков${matchListText}`,
         url: `${url}?chatId=${chatId}`,
+        parse_mode: 'HTML',
     };
 }
 

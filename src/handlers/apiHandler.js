@@ -145,4 +145,81 @@ async function getActiveMatches(req, res) {
     }
 }
 
-module.exports = { getActiveMatches };
+/**
+ * GET /api/match?matchId=<matchId>&chatId=<chatId>
+ *
+ * Returns details for a single match by its ID, regardless of status (including FINISHED).
+ * Marks tracked players based on chatId subscriptions.
+ */
+async function getMatch(req, res) {
+    const { matchId, chatId } = req.query;
+    if (!matchId) {
+        return res.status(400).json({ error: 'matchId query parameter is required' });
+    }
+
+    try {
+        const [match, subscriptions] = await Promise.all([
+            getMatchDetails(config.faceit_api_key, matchId),
+            chatId ? storageService.getChatSubscriptions(chatId) : Promise.resolve([]),
+        ]);
+
+        if (!match) {
+            return res.status(404).json({ error: 'Match not found' });
+        }
+
+        const trackedPlayerIds = new Set(subscriptions.map(s => s.playerId));
+        const nicknameById = new Map(subscriptions.map(s => [s.playerId, s.nickname]));
+
+        const enriched = await enrichMatchWithRosterElos(config.faceit_api_key, match);
+        const resolvedMatchId = enriched.match_id || enriched.id;
+
+        const faction1 = enriched.teams?.faction1 || {};
+        const faction2 = enriched.teams?.faction2 || {};
+
+        const markTracked = (roster) => (roster || []).map(p => ({
+            ...p,
+            isTracked: trackedPlayerIds.has(p.player_id),
+        }));
+
+        const allRosterIds = [
+            ...(faction1.roster || []),
+            ...(faction2.roster || []),
+        ].map(p => p.player_id);
+
+        const trackedNicknames = [...new Set(
+            allRosterIds
+                .filter(id => trackedPlayerIds.has(id))
+                .map(id => nicknameById.get(id) || id)
+        )];
+
+        return res.json({
+            match: {
+                matchId: resolvedMatchId,
+                status: enriched.status,
+                competition_name: enriched.competition_name,
+                region: enriched.region,
+                best_of: enriched.best_of,
+                results: enriched.results || null,
+                teams: {
+                    faction1: {
+                        name: faction1.name,
+                        stats: faction1.stats || null,
+                        roster: markTracked(faction1.roster),
+                    },
+                    faction2: {
+                        name: faction2.name,
+                        stats: faction2.stats || null,
+                        roster: markTracked(faction2.roster),
+                    },
+                },
+                trackedPlayers: trackedNicknames,
+                matchUrl: `${MATCH_URL_BASE}/${resolvedMatchId}`,
+            },
+        });
+    } catch (error) {
+        console.error('[API] Error fetching match:', error);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+}
+
+module.exports = { getActiveMatches, getMatch };

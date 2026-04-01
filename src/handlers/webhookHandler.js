@@ -116,6 +116,7 @@ async function handleWebhook(req, res) {
                 method: 'sendMessage',
                 chat_id: chatId,
                 text: result.text,
+                parse_mode: result.parse_mode || undefined,
                 reply_markup: { inline_keyboard: [[button]] },
             });
         }

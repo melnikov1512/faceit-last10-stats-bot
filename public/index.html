@@ -642,10 +642,41 @@
         }
 
         function manualRefresh() {
-            loadMatches(hasContent);
+            if (matchId) {
+                loadSingleMatch(hasContent);
+            } else {
+                loadMatches(hasContent);
+            }
         }
 
-        // ── Load ─────────────────────────────────────────────────
+        // ── Single match loader (from notification button) ────────
+        async function loadSingleMatch(overlay = false) {
+            setRefreshing(true);
+            if (!overlay) {
+                app.innerHTML = `<div class="state"><div class="spinner"></div><div style="margin-top:4px">Загрузка…</div></div>`;
+            }
+
+            try {
+                const params = new URLSearchParams({ matchId });
+                if (chatId) params.set('chatId', chatId);
+                const res = await fetch(`/api/match?${params}`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+
+                hasContent = true;
+                refreshBar.style.display = 'flex';
+                app.innerHTML = renderMatch(data.match);
+            } catch (err) {
+                if (!overlay) {
+                    showState('⚠️', 'Ошибка загрузки', err.message);
+                }
+            } finally {
+                setRefreshing(false);
+                startAutoRefresh();
+            }
+        }
+
+        // ── Active matches loader (from /live) ────────────────────
         async function loadMatches(overlay = false) {
             if (!chatId) { showState('❌', 'chatId не передан', ''); return; }
 
@@ -658,22 +689,13 @@
                 const res = await fetch(`/api/active-matches?chatId=${encodeURIComponent(chatId)}`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
-
-                let matches = data.matches || [];
-
-                if (matchId) {
-                    matches = matches.filter(m => m.matchId === matchId);
-                }
+                const matches = data.matches || [];
 
                 hasContent = true;
                 refreshBar.style.display = 'flex';
 
                 if (!matches.length) {
-                    if (matchId) {
-                        showState('⏱', 'Матч завершён', 'Информация о матче уже недоступна');
-                    } else {
-                        showState('😴', 'Нет активных матчей', 'Ни один из подписанных игроков сейчас не играет');
-                    }
+                    showState('😴', 'Нет активных матчей', 'Ни один из подписанных игроков сейчас не играет');
                 } else {
                     app.innerHTML = matches.map(renderMatch).join('');
                 }
@@ -689,8 +711,12 @@
 
         // ── Init ─────────────────────────────────────────────────
         if (window.Telegram?.WebApp) Telegram.WebApp.ready();
-        if (matchId) document.getElementById('page-title').textContent = 'Матч';
-        loadMatches(false);
+        if (matchId) {
+            document.getElementById('page-title').textContent = 'Матч';
+            loadSingleMatch(false);
+        } else {
+            loadMatches(false);
+        }
     </script>
 </body>
 </html>
