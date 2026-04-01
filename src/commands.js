@@ -60,6 +60,12 @@ const COMMAND_LIST = [
         description: 'Показать активные подписки в этом чате',
     },
     {
+        key:         'LIVE',
+        command:     '/live',
+        args:        null,
+        description: 'Открыть активные матчи подписанных игроков',
+    },
+    {
         key:         'HELP',
         command:     '/help',
         args:        null,

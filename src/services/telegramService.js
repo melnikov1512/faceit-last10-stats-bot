@@ -23,7 +23,7 @@ async function setMyCommands() {
     }
 }
 
-async function sendMessage(chatId, text) {
+async function sendMessage(chatId, text, replyMarkup = null) {
     const token = config.telegram_bot_token;
     if (!token) {
         console.error('TELEGRAM_BOT_TOKEN is not configured');
@@ -31,12 +31,15 @@ async function sendMessage(chatId, text) {
     }
 
     try {
-        await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+        const payload = {
             chat_id: chatId,
             text,
             parse_mode: 'Markdown',
-            disable_web_page_preview: true
-        });
+            disable_web_page_preview: true,
+        };
+        if (replyMarkup) payload.reply_markup = replyMarkup;
+
+        await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, payload);
     } catch (error) {
         console.error(`Failed to send Telegram message to chat ${chatId}:`, error.message);
     }

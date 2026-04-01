@@ -274,8 +274,122 @@ async function getMatchDetails(apiKey, matchId) {
     }
 }
 
+/**
+ * Get a player's recent match history.
+ * @param {object} apiClient
+ * @param {string} playerId
+ * @param {number} from  - Unix timestamp (seconds) for lower bound
+ * @param {number} limit
+ * @returns {Promise<object|null>}
+ */
+async function getPlayerHistory(apiClient, playerId, from, limit = 5) {
+    try {
+        const response = await apiClient.get(`/players/${playerId}/history`, {
+            params: { game: GAME, from, limit }
+        });
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching history for player ${playerId}:`, error.message);
+        return null;
+    }
+}
+
+/** Statuses that mean a match is definitively over */
+const FINISHED_STATUSES = new Set(['FINISHED', 'CANCELLED', 'ABORTED', 'WALKOVER', 'DROPPED']);
+
+/**
+ * Check if a player is currently in an active match.
+ *
+ * Strategy: fetch the player's most recent matches from the last 4 hours,
+ * then verify each match's real-time status via getMatchDetails (history
+ * status can be stale). Returns the first match that is not finished.
+ *
+ * @param {string} apiKey
+ * @param {string} playerId
+ * @returns {Promise<object|null>} Full match object if active, null otherwise
+ */
+async function getPlayerActiveMatch(apiKey, playerId) {
+    if (!apiKey || !playerId) return null;
+    const apiClient = createApiClient(apiKey);
+
+    // Query last 4 hours — wide enough to catch a match in progress
+    const from = Math.floor(Date.now() / 1000) - 4 * 60 * 60;
+    const historyData = await getPlayerHistory(apiClient, playerId, from, 5);
+    const items = historyData?.items;
+
+    console.log(`[ACTIVE MATCH] Player ${playerId}: history from=${from}, items=${items?.length ?? 'null'}`);
+    if (items?.length) {
+        for (const item of items) {
+            console.log(`[ACTIVE MATCH]   match_id=${item.match_id} status=${item.status} started_at=${item.started_at} finished_at=${item.finished_at}`);
+        }
+    }
+
+    if (!items?.length) return null;
+
+    // Verify real-time status for each recent match (history status can lag)
+    for (const item of items) {
+        const matchId = item.match_id;
+        if (!matchId) continue;
+
+        const match = await getMatchDetails(apiKey, matchId);
+        console.log(`[ACTIVE MATCH]   getMatchDetails(${matchId}) → status=${match?.status ?? 'null'}`);
+        if (!match) continue;
+
+        if (!FINISHED_STATUSES.has(match.status)) {
+            console.log(`[ACTIVE MATCH]   → ACTIVE match found: ${matchId} (${match.status})`);
+            return match;
+        }
+    }
+
+    console.log(`[ACTIVE MATCH] Player ${playerId}: no active match found`);
+    return null;
+}
+
+/**
+ * Enrich a match object's rosters with each player's current ELO and skill level.
+ * Fetches all roster players in parallel (chunked).
+ * @param {string} apiKey
+ * @param {object} match  - Raw match object from FACEIT API
+ * @returns {Promise<object>} Match with enriched roster entries
+ */
+async function enrichMatchWithRosterElos(apiKey, match) {
+    if (!match) return match;
+    const apiClient = createApiClient(apiKey);
+
+    const faction1 = match?.teams?.faction1 || {};
+    const faction2 = match?.teams?.faction2 || {};
+    const allPlayers = [...(faction1.roster || []), ...(faction2.roster || [])];
+
+    const playerInfos = await processInChunks(allPlayers, 10, async (player) => {
+        const info = await getPlayerInfoById(apiClient, player.player_id);
+        return {
+            player_id: player.player_id,
+            faceit_elo: info?.games?.cs2?.faceit_elo ?? null,
+            skill_level: info?.games?.cs2?.skill_level ?? null,
+        };
+    });
+
+    const eloMap = new Map(playerInfos.map(p => [p.player_id, p]));
+
+    const enrichRoster = (roster) => (roster || []).map(p => ({
+        ...p,
+        faceit_elo: eloMap.get(p.player_id)?.faceit_elo ?? null,
+        skill_level: eloMap.get(p.player_id)?.skill_level ?? null,
+    }));
+
+    return {
+        ...match,
+        teams: {
+            faction1: { ...faction1, roster: enrichRoster(faction1.roster) },
+            faction2: { ...faction2, roster: enrichRoster(faction2.roster) },
+        },
+    };
+}
+
 module.exports = {
     getLeaderboardStats,
     getPlayerIdByNickname,
-    getMatchDetails
+    getMatchDetails,
+    getPlayerActiveMatch,
+    enrichMatchWithRosterElos,
 };

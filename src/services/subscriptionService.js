@@ -92,7 +92,7 @@ async function handleMatchEvent(payload) {
 
 
     // For each player in the match, find which chats are subscribed
-    const chatToPlayers = new Map(); // chatId → [nickname, ...]
+    const chatToPlayers = new Map(); // chatId → { nicknames: [], playerIds: [] }
     await Promise.all(allRosterPlayers.map(async (rosterPlayer) => {
         const playerId = rosterPlayer.player_id;
         const nickname = rosterPlayer.nickname;
@@ -101,9 +101,11 @@ async function handleMatchEvent(payload) {
         const subscribedChats = await storageService.getSubscribedChats(playerId);
         for (const chatId of subscribedChats) {
             if (!chatToPlayers.has(chatId)) {
-                chatToPlayers.set(chatId, []);
+                chatToPlayers.set(chatId, { nicknames: [], playerIds: [] });
             }
-            chatToPlayers.get(chatId).push(nickname);
+            const entry = chatToPlayers.get(chatId);
+            entry.nicknames.push(nickname);
+            entry.playerIds.push(playerId);
         }
     }));
 
@@ -113,14 +115,15 @@ async function handleMatchEvent(payload) {
     }
 
     // Send one notification per chat, skipping already-sent ones
-    await Promise.all([...chatToPlayers.entries()].map(async ([chatId, nicknames]) => {
+    await Promise.all([...chatToPlayers.entries()].map(async ([chatId, { nicknames, playerIds }]) => {
         const alreadySent = await storageService.hasNotificationBeenSent(matchId, chatId);
         if (alreadySent) {
             console.log(`[FACEIT WEBHOOK] Match ${matchId} notification already sent to chat ${chatId}, skipping`);
             return;
         }
 
-        await storageService.markNotificationSent(matchId, chatId);
+        await storageService.markNotificationSent(matchId, chatId, playerIds);
+        await storageService.storeActiveMatch(chatId, matchId);
 
         const playerList = nicknames.map(n => `*${n}*`).join(', ');
         const verb = nicknames.length === 1 ? 'начал' : 'начали';
@@ -152,7 +155,17 @@ async function handleMatchEvent(payload) {
         ];
         const text = lines.join('\n');
 
-        await sendMessage(chatId, text);
+        // Build inline keyboard: url button (works in all chat types) + match link
+        const inlineButtons = [];
+        if (config.webapp_url) {
+            const webAppUrl = `${config.webapp_url}?chatId=${chatId}`;
+            inlineButtons.push({ text: '📊 Составы и счёт', url: webAppUrl });
+        }
+        const replyMarkup = inlineButtons.length
+            ? { inline_keyboard: [inlineButtons] }
+            : null;
+
+        await sendMessage(chatId, text, replyMarkup);
         console.log(`[FACEIT WEBHOOK] Sent match ${matchId} notification to chat ${chatId} for players: ${nicknames.join(', ')}`);
     }));
 }

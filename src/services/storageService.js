@@ -8,6 +8,7 @@ const db = new Firestore(dbOptions);
 const chatCollection = db.collection('chats');
 const playerSubscriptionsCollection = db.collection('player_subscriptions');
 const sentMatchNotificationsCollection = db.collection('sent_match_notifications');
+const activeMatchesCollection = db.collection('active_matches');
 
 /**
  * Add a player to the chat's tracking list and store the chat name.
@@ -99,7 +100,12 @@ module.exports = {
     getChatSubscriptions,
     // Match notification deduplication
     hasNotificationBeenSent,
-    markNotificationSent
+    markNotificationSent,
+    getRecentMatchIdsForPlayers,
+    // Active matches tracking
+    storeActiveMatch,
+    getActiveMatchIds,
+    removeActiveMatch,
 };
 
 // ── Subscription methods ────────────────────────────────────────────────────
@@ -178,12 +184,88 @@ async function hasNotificationBeenSent(matchId, chatId) {
  * Mark a match notification as sent to a chat.
  * @param {string} matchId
  * @param {string} chatId
+ * @param {string[]} [playerIds] - FACEIT player IDs of subscribed players that triggered this notification
  */
-async function markNotificationSent(matchId, chatId) {
+async function markNotificationSent(matchId, chatId, playerIds = []) {
     const docId = `${matchId}_${chatId}`;
     await sentMatchNotificationsCollection.doc(docId).set({
         matchId,
         chatId: chatId.toString(),
+        playerIds,
         sentAt: Firestore.Timestamp.now()
     });
+}
+
+/**
+ * Find recent match IDs from sent_match_notifications where any of the given playerIds were involved.
+ * Searches across all chats (not filtered by chatId).
+ * Time filtering is done in memory to avoid requiring a composite Firestore index.
+ * @param {string[]} playerIds
+ * @param {number} sinceTs - Unix timestamp (seconds) lower bound for sentAt
+ * @returns {Promise<string[]>} Unique match IDs
+ */
+async function getRecentMatchIdsForPlayers(playerIds, sinceTs) {
+    if (!playerIds.length) return [];
+
+    const sinceMs = sinceTs * 1000;
+
+    // Firestore array-contains supports one value at a time — run queries in parallel
+    const snapshots = await Promise.all(
+        playerIds.map(playerId =>
+            sentMatchNotificationsCollection
+                .where('playerIds', 'array-contains', playerId)
+                .get()
+        )
+    );
+
+    const matchIds = new Set();
+    for (const snap of snapshots) {
+        for (const doc of snap.docs) {
+            const data = doc.data();
+            // Filter by time in memory — avoids composite index requirement
+            const sentAtMs = data.sentAt?.toMillis?.() ?? 0;
+            if (sentAtMs >= sinceMs && data.matchId) {
+                matchIds.add(data.matchId);
+            }
+        }
+    }
+    return [...matchIds];
+}
+
+// ── Active matches tracking ────────────────────────────────────────────────
+
+/**
+ * Record a match as active for a chat (called when match-start notification is sent).
+ * @param {string} chatId
+ * @param {string} matchId
+ */
+async function storeActiveMatch(chatId, matchId) {
+    const docId = `${chatId}_${matchId}`;
+    await activeMatchesCollection.doc(docId).set({
+        chatId: chatId.toString(),
+        matchId,
+        startedAt: Firestore.Timestamp.now(),
+    });
+}
+
+/**
+ * Get all stored active match IDs for a chat.
+ * @param {string} chatId
+ * @returns {Promise<string[]>}
+ */
+async function getActiveMatchIds(chatId) {
+    const snapshot = await activeMatchesCollection
+        .where('chatId', '==', chatId.toString())
+        .get();
+    return snapshot.docs.map(doc => doc.data().matchId);
+}
+
+/**
+ * Remove a match from the active matches store (when it has finished or been cancelled).
+ * @param {string} chatId
+ * @param {string} matchId
+ */
+async function removeActiveMatch(chatId, matchId) {
+    const docId = `${chatId}_${matchId}`;
+    await activeMatchesCollection.doc(docId).delete();
 }

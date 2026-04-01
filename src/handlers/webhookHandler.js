@@ -68,8 +68,9 @@ async function handleWebhook(req, res) {
         const chatName = message.chat.title ||
             [message.chat.first_name, message.chat.last_name].filter(Boolean).join(' ') ||
             null;
+        const chatType = message.chat.type;
 
-        const result = await handleCommand(command, chatId, args, apiKey, chatName);
+        const result = await handleCommand(command, chatId, args, apiKey, chatName, chatType);
 
         // ForceReply: ask user to provide the missing argument
         if (result?.type === 'force_reply') {
@@ -94,6 +95,19 @@ async function handleWebhook(req, res) {
                     parse_mode: 'HTML',
                 });
             }
+        }
+
+        // web_app button: web_app type in private, url type in groups (Telegram restriction)
+        if (result?.type === 'web_app') {
+            const button = result.useWebAppButton
+                ? { text: '📊 Открыть', web_app: { url: result.url } }
+                : { text: '📊 Открыть', url: result.url };
+            return res.json({
+                method: 'sendMessage',
+                chat_id: chatId,
+                text: result.text,
+                reply_markup: { inline_keyboard: [[button]] },
+            });
         }
 
         res.json({
