@@ -62,15 +62,13 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 
 ## Developer Workflows
 - **Local Development**: 
-    1. Create `.env` with `FACEIT_API_KEY=...`, `TELEGRAM_BOT_TOKEN_TEST=...`, and `GOOGLE_APPLICATION_CREDENTIALS=...` (if needed for Firestore).
+    1. Create `.env` with `FACEIT_API_KEY=...`, `TELEGRAM_BOT_TOKEN=...`, and `GOOGLE_APPLICATION_CREDENTIALS=...` (if needed for Firestore).
     2. Ensure `GCLOUD_PROJECT` or `GOOGLE_CLOUD_PROJECT` is set in `.env` for Firestore context.
-    3. Set `NGROK_APP_ENDPOINT` in `.env` for the ngrok static domain.
-    4. Run `npm run dev`. This triggers `predev` (`scripts/set-webhook.js` registers the ngrok URL as the Telegram webhook), then starts ngrok + the server concurrently.
-    5. Alternatively, run `node index.js` directly (no webhook registration). The server listens on `PORT` (default 8080).
+    3. Run `npm run dev` — starts ngrok + the server concurrently.
+    4. If the webhook URL ever changes, run `npm run set-webhook` once manually.
 - **npm Scripts**:
     - `npm start` — Production start (`node index.js`).
-    - `npm run dev` — Local dev: runs `set-webhook.js` (predev), then starts ngrok tunnel and `node index.js` concurrently.
-    - `npm run migrate` — Run DB migration manually (`scripts/migrate-chats.js`).
+    - `npm run dev` — Local dev: starts ngrok tunnel and `node index.js` concurrently.
 - **Request Handling**:
   - `POST /`: Handles Telegram updates (routed to `src/handlers/webhookHandler.js`).
   - `POST /webhook/faceit`: Handles FACEIT match events (routed to `src/handlers/faceitWebhookHandler.js`).
@@ -90,12 +88,12 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     | Config Key | Env Var | Purpose |
     |---|---|---|
     | `faceit_api_key` | `FACEIT_API_KEY` | FACEIT OpenAPI v4 Bearer token |
-    | `telegram_bot_token` | `TELEGRAM_BOT_TOKEN` (prod) or `TELEGRAM_BOT_TOKEN_TEST` (dev) | Bot token |
+    | `telegram_bot_token` | `TELEGRAM_BOT_TOKEN` | Bot token |
     | `faceit_webhook_secret` | `FACEIT_WEBHOOK_SECRET` | FACEIT webhook validation (optional) |
     | `projectId` | `GCLOUD_PROJECT` or `GOOGLE_CLOUD_PROJECT` | GCP project for Firestore |
     | `last_matches` | — | Default N for `/stats` |
   - **Security**: 
-    - Use `.env` file for local `FACEIT_API_KEY`, `TELEGRAM_BOT_TOKEN_TEST`, `FACEIT_WEBHOOK_SECRET`.
+    - Use `.env` file for local `FACEIT_API_KEY`, `TELEGRAM_BOT_TOKEN`, `FACEIT_WEBHOOK_SECRET`.
     - Use Runtime Environment Variables for secrets in Google Cloud Functions.
     - NEVER commit the actual API key to `config.json`.
 
@@ -119,7 +117,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/commands.js`: **Единый реестр команд.** Экспортирует `COMMAND_LIST` (полные описания), `COMMANDS` (словарь строк), `BOT_COMMANDS` (для `setMyCommands` API). Единственное место для добавления новых команд.
 - `src/constants.js`: Реэкспорт `COMMANDS` из `src/commands.js` (обратная совместимость).
 - `config.json`: Master configuration file (default values; no secrets).
-- `scripts/set-webhook.js`: Registers ngrok URL as Telegram webhook (runs as `predev`).
+- `scripts/` — утилиты для разработки (пусто после удаления `set-webhook.js`).
 - `scripts/migrate-chats.js`: Migrates `chats` collection from `players: string[]` to `players: [{id, nickname}]`. Idempotent — safe to run multiple times. Runs automatically on server startup and via `npm run migrate`.
 - `ai-files/LOCAL_TESTING.md`: Local testing guide (Russian).
 - `ai-files/faceit-open-api.json`: OpenAPI 3.0 spec for FACEIT Data API v4.
