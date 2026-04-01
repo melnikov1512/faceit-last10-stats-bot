@@ -39,11 +39,11 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 14px 16px 10px;
+            padding: 17px 19px 12px;
         }
 
         .top-bar-title {
-            font-size: 17px;
+            font-size: 20px;
             font-weight: 700;
             color: var(--text);
             letter-spacing: -0.3px;
@@ -52,7 +52,7 @@
         .top-bar-actions {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 7px;
         }
 
         .refresh-icon-btn {
@@ -60,9 +60,9 @@
             border: none;
             color: var(--text-sub);
             cursor: pointer;
-            width: 32px; height: 32px;
+            width: 38px; height: 38px;
             display: flex; align-items: center; justify-content: center;
-            border-radius: 8px;
+            border-radius: 10px;
             flex-shrink: 0;
             padding: 0;
             transition: color 0.15s, background 0.15s;
@@ -71,10 +71,10 @@
         .refresh-icon-btn.spinning svg { animation: spin 0.8s linear infinite; }
 
         .countdown {
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 500;
             color: var(--text-sub);
-            min-width: 28px;
+            min-width: 32px;
         }
 
         /* ── Loading / Error / Empty states ── */
@@ -84,17 +84,17 @@
             align-items: center;
             justify-content: center;
             min-height: 60vh;
-            gap: 10px;
+            gap: 12px;
             color: var(--text-sub);
-            font-size: 14px;
+            font-size: 17px;
             text-align: center;
-            padding: 24px;
+            padding: 29px;
         }
-        .state-icon { font-size: 40px; margin-bottom: 4px; }
-        .state-title { font-size: 16px; font-weight: 600; color: var(--text); }
+        .state-icon { font-size: 48px; margin-bottom: 4px; }
+        .state-title { font-size: 19px; font-weight: 600; color: var(--text); }
 
         .spinner {
-            width: 32px; height: 32px;
+            width: 38px; height: 38px;
             border: 2px solid rgba(255,255,255,0.08);
             border-top-color: var(--orange);
             border-radius: 50%;
@@ -104,12 +104,12 @@
         @keyframes spin { to { transform: rotate(360deg); } }
 
         /* ── Match cards ── */
-        #app { padding: 0 12px 24px; }
+        #app { padding: 0 14px 29px; }
 
         .match-card {
             background: var(--card);
-            border-radius: 12px;
-            margin-bottom: 12px;
+            border-radius: 14px;
+            margin-bottom: 14px;
             overflow: hidden;
         }
 
@@ -118,31 +118,31 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 12px 14px;
+            padding: 14px 17px;
             border-bottom: 1px solid var(--divider);
-            gap: 8px;
+            gap: 10px;
         }
 
         .match-header-left {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
             min-width: 0;
         }
 
         .match-game-icon {
-            width: 28px; height: 28px;
-            border-radius: 6px;
+            width: 34px; height: 34px;
+            border-radius: 7px;
             background: #2C2C2C;
             flex-shrink: 0;
             display: flex; align-items: center; justify-content: center;
-            font-size: 16px;
+            font-size: 19px;
         }
 
         .match-meta { min-width: 0; }
 
         .match-competition {
-            font-size: 13px;
+            font-size: 16px;
             font-weight: 600;
             color: var(--text);
             white-space: nowrap;
@@ -151,15 +151,15 @@
         }
 
         .match-details {
-            font-size: 11px;
+            font-size: 13px;
             color: var(--text-sub);
             margin-top: 1px;
         }
 
         .match-status {
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 700;
-            padding: 3px 8px;
+            padding: 4px 10px;
             border-radius: 20px;
             white-space: nowrap;
             flex-shrink: 0;
@@ -167,21 +167,26 @@
             text-transform: uppercase;
         }
 
-        .status-ONGOING     { background: rgba(82,188,106,0.15); color: var(--green); }
-        .status-READY       { background: rgba(255,85,0,0.15);   color: var(--orange); }
-        .status-VOTING      { background: rgba(255,85,0,0.1);    color: #FF8C00; }
+        .status-ONGOING     { background: rgba(82,188,106,0.15);  color: var(--green); }
+        .status-READY       { background: rgba(255,85,0,0.15);    color: var(--orange); }
+        .status-VOTING      { background: rgba(255,85,0,0.1);     color: #FF8C00; }
         .status-CONFIGURING { background: rgba(255,255,255,0.07); color: var(--text-sub); }
+        .status-FINISHED,
+        .status-CANCELLED,
+        .status-ABORTED,
+        .status-WALKOVER,
+        .status-DROPPED     { background: rgba(255,255,255,0.06); color: var(--text-sub); }
 
-        /* ── VS / Score section ── */
+        /* ── VS / Score section uses grid so center never squeezes team names ── */
         .vs-section {
-            display: flex;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
             align-items: center;
-            padding: 14px 14px 0;
-            gap: 8px;
+            padding: 17px 17px 0;
+            gap: 10px;
         }
 
         .vs-team {
-            flex: 1;
             min-width: 0;
             display: flex;
             flex-direction: column;
@@ -190,16 +195,17 @@
         .vs-team.right { align-items: flex-end; text-align: right; }
 
         .vs-team-name {
-            font-size: 13px;
+            font-size: 16px;
             font-weight: 700;
             color: var(--text);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            max-width: 100%;
         }
 
         .vs-team-elo {
-            font-size: 11px;
+            font-size: 13px;
             color: var(--text-sub);
             margin-top: 1px;
         }
@@ -210,6 +216,7 @@
             align-items: center;
             flex-shrink: 0;
             gap: 2px;
+            min-width: 96px;
         }
 
         .vs-score {
@@ -219,22 +226,22 @@
         }
 
         .vs-score-num {
-            font-size: 26px;
+            font-size: 30px;
             font-weight: 800;
             line-height: 1;
             color: var(--text);
-            min-width: 24px;
+            min-width: 28px;
             text-align: center;
         }
 
         .vs-score-sep {
-            font-size: 18px;
+            font-size: 20px;
             font-weight: 700;
             color: var(--text-sub);
         }
 
         .vs-label {
-            font-size: 10px;
+            font-size: 12px;
             font-weight: 600;
             color: var(--text-sub);
             letter-spacing: 0.5px;
@@ -245,7 +252,7 @@
         .section-divider {
             height: 1px;
             background: var(--divider);
-            margin: 12px 0 0;
+            margin: 14px 0 0;
         }
 
         /* ── Teams ── */
@@ -264,19 +271,24 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 10px 12px 6px;
+            padding: 12px 14px 7px;
+            gap: 6px;
         }
 
         .team-col-label {
-            font-size: 10px;
+            font-size: 11px;
             font-weight: 700;
             letter-spacing: 0.5px;
             text-transform: uppercase;
             color: var(--text-sub);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-width: 0;
         }
 
         .team-col-avg {
-            font-size: 10px;
+            font-size: 12px;
             font-weight: 600;
             color: var(--text-sub);
         }
@@ -285,8 +297,8 @@
         .player-row {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 7px 12px;
+            gap: 10px;
+            padding: 8px 14px;
             border-top: 1px solid var(--divider);
             position: relative;
         }
@@ -305,7 +317,7 @@
         }
 
         .player-avatar {
-            width: 30px; height: 30px;
+            width: 36px; height: 36px;
             border-radius: 50%;
             background: #2C2C2C;
             flex-shrink: 0;
@@ -313,12 +325,12 @@
         }
 
         .player-avatar-placeholder {
-            width: 30px; height: 30px;
+            width: 36px; height: 36px;
             border-radius: 50%;
             background: #2C2C2C;
             flex-shrink: 0;
             display: flex; align-items: center; justify-content: center;
-            font-size: 13px;
+            font-size: 16px;
             color: var(--text-sub);
         }
 
@@ -328,7 +340,7 @@
         }
 
         .player-nick {
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 600;
             white-space: nowrap;
             overflow: hidden;
@@ -342,12 +354,12 @@
         .player-elo-line {
             display: flex;
             align-items: center;
-            gap: 4px;
-            margin-top: 1px;
+            gap: 5px;
+            margin-top: 2px;
         }
 
         .player-elo-val {
-            font-size: 11px;
+            font-size: 13px;
             color: var(--text-sub);
             font-weight: 500;
         }
@@ -357,9 +369,9 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 18px; height: 18px;
-            border-radius: 4px;
-            font-size: 10px;
+            width: 22px; height: 22px;
+            border-radius: 5px;
+            font-size: 12px;
             font-weight: 800;
             flex-shrink: 0;
             line-height: 1;
@@ -373,7 +385,7 @@
 
         /* ── Tracked badge ── */
         .tracked-dot {
-            width: 5px; height: 5px;
+            width: 6px; height: 6px;
             border-radius: 50%;
             background: var(--orange);
             flex-shrink: 0;
@@ -381,7 +393,7 @@
 
         /* ── Footer ── */
         .match-footer {
-            padding: 12px 14px;
+            padding: 14px 17px;
             border-top: 1px solid var(--divider);
         }
 
@@ -389,13 +401,13 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 6px;
+            gap: 7px;
             background: var(--orange);
             color: #fff;
-            font-size: 13px;
+            font-size: 16px;
             font-weight: 700;
-            padding: 10px 20px;
-            border-radius: 8px;
+            padding: 12px 24px;
+            border-radius: 10px;
             text-decoration: none;
             letter-spacing: 0.1px;
             transition: opacity 0.15s;
@@ -428,7 +440,7 @@
         <div class="top-bar-actions" id="refresh-bar" style="display:none">
             <span id="countdown" class="countdown">60с</span>
             <button id="refresh-btn" class="refresh-icon-btn" onclick="manualRefresh()" title="Обновить">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M23 4v6h-6"/>
                     <path d="M1 20v-6h6"/>
                     <path d="M3.51 9a9 9 0 0114.85-3.36L23 10"/>
@@ -480,9 +492,19 @@
         let hasContent = false; // true after first successful or empty load
 
         // ── Timer ────────────────────────────────────────────────
+        // currentMatchStatus is set after each load; finished matches skip auto-refresh.
+        let currentMatchStatus = null;
+
         function startAutoRefresh() {
             clearInterval(countdownTimer);
             clearTimeout(autoRefreshTimer);
+
+            // Don't auto-refresh a finished single match — data won't change.
+            if (matchId && currentMatchStatus && FINISHED_STATUSES.has(currentMatchStatus)) {
+                countdownEl.textContent = '—';
+                return;
+            }
+
             countdownVal = AUTO_REFRESH_SEC;
             countdownEl.textContent = `${countdownVal}с`;
 
@@ -492,9 +514,13 @@
                 if (countdownVal <= 0) clearInterval(countdownTimer);
             }, 1000);
 
-            autoRefreshTimer = setTimeout(() => loadMatches(true), AUTO_REFRESH_SEC * 1000);
+            const loader = matchId
+                ? () => loadSingleMatch(true)
+                : () => loadMatches(true);
+            autoRefreshTimer = setTimeout(loader, AUTO_REFRESH_SEC * 1000);
         }
 
+        // ── Helpers ──────────────────────────────────────────────
         function setRefreshing(on) {
             refreshBtn.classList.toggle('spinning', on);
             app.classList.toggle('content-area', hasContent);
@@ -502,18 +528,33 @@
         }
 
         function manualRefresh() {
-            loadMatches(hasContent); // overlay only if content already showing
+            if (matchId) {
+                loadSingleMatch(hasContent);
+            } else {
+                loadMatches(hasContent);
+            }
         }
 
-        // ── Helpers ──────────────────────────────────────────────
         function skillClass(level) {
             const l = parseInt(level);
             return l ? `sl-${l}` : '';
         }
 
         function statusLabel(status) {
-            return { ONGOING: 'Live', READY: 'Ready', VOTING: 'Voting', CONFIGURING: 'Starting' }[status] || status;
+            return {
+                ONGOING:     'Live',
+                READY:       'Ready',
+                VOTING:      'Voting',
+                CONFIGURING: 'Starting',
+                FINISHED:    'Завершён',
+                CANCELLED:   'Отменён',
+                ABORTED:     'Прерван',
+                WALKOVER:    'Walkover',
+                DROPPED:     'Dropped',
+            }[status] || status;
         }
+
+        const FINISHED_STATUSES = new Set(['FINISHED', 'CANCELLED', 'ABORTED', 'WALKOVER', 'DROPPED']);
 
         function escHtml(str) {
             return String(str)
@@ -561,7 +602,7 @@
             const avg2 = f2.stats?.rating ? `Avg. ${f2.stats.rating}` : '';
 
             let centerContent;
-            if (match.status === 'ONGOING' && match.results?.score) {
+            if (match.results?.score) {
                 const s = match.results.score;
                 centerContent = `
                     <div class="vs-score">
@@ -620,7 +661,7 @@
                     </div>
                     <div class="match-footer">
                         <a class="watch-btn" href="${match.matchUrl}" target="_blank">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
                             Открыть на FACEIT
                         </a>
                     </div>
@@ -664,6 +705,7 @@
                 const data = await res.json();
 
                 hasContent = true;
+                currentMatchStatus = data.match?.status || null;
                 refreshBar.style.display = 'flex';
                 app.innerHTML = renderMatch(data.match);
             } catch (err) {
