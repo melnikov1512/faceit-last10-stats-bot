@@ -484,6 +484,18 @@
         let autoRefreshTimer = null;
         let hasContent = false; // true after first successful or empty load
 
+        // Replace broken avatar images with initials placeholder
+        document.addEventListener('error', (e) => {
+            const img = e.target;
+            if (img.classList?.contains('player-avatar')) {
+                const div = Object.assign(document.createElement('div'), {
+                    className: 'player-avatar-placeholder',
+                    textContent: img.dataset.initial || '?',
+                });
+                img.replaceWith(div);
+            }
+        }, true);
+
         // ── Timer ────────────────────────────────────────────────
         // currentMatchStatus is set after each load; finished matches skip auto-refresh.
         let currentMatchStatus = null;
@@ -511,21 +523,6 @@
                 ? () => loadSingleMatch(true)
                 : () => loadMatches(true);
             autoRefreshTimer = setTimeout(loader, AUTO_REFRESH_SEC * 1000);
-        }
-
-        // ── Helpers ──────────────────────────────────────────────
-        function setRefreshing(on) {
-            refreshBtn.classList.toggle('spinning', on);
-            app.classList.toggle('content-area', hasContent);
-            app.classList.toggle('refreshing', on && hasContent);
-        }
-
-        function manualRefresh() {
-            if (matchId) {
-                loadSingleMatch(hasContent);
-            } else {
-                loadMatches(hasContent);
-            }
         }
 
         function skillClass(level) {
@@ -562,7 +559,7 @@
         function renderAvatar(player) {
             const nick = player.nickname || player.game_player_name || '?';
             if (player.avatar) {
-                return `<img class="player-avatar" src="${player.avatar}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'player-avatar-placeholder',textContent:'${avatarInitial(nick)}'}))">`;
+                return `<img class="player-avatar" src="${player.avatar}" alt="" data-initial="${avatarInitial(nick)}">`;
             }
             return `<div class="player-avatar-placeholder">${avatarInitial(nick)}</div>`;
         }
@@ -692,13 +689,15 @@
                 const params = new URLSearchParams({ matchId });
                 if (chatId) params.set('chatId', chatId);
                 const res = await fetch(`/api/match?${params}`);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-
-                hasContent = true;
-                currentMatchStatus = data.match?.status || null;
-                refreshBar.style.display = 'flex';
-                app.innerHTML = renderMatch(data.match);
+                if (!res.ok) {
+                    if (!overlay) showState('⚠️', 'Ошибка загрузки', `HTTP ${res.status}`);
+                } else {
+                    const data = await res.json();
+                    hasContent = true;
+                    currentMatchStatus = data.match?.status || null;
+                    refreshBar.style.display = 'flex';
+                    app.innerHTML = renderMatch(data.match);
+                }
             } catch (err) {
                 if (!overlay) {
                     showState('⚠️', 'Ошибка загрузки', err.message);
@@ -720,17 +719,18 @@
 
             try {
                 const res = await fetch(`/api/active-matches?chatId=${encodeURIComponent(chatId)}`);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                const matches = data.matches || [];
-
-                hasContent = true;
-                refreshBar.style.display = 'flex';
-
-                if (!matches.length) {
-                    showState('😴', 'Нет активных матчей', 'Ни один из подписанных игроков сейчас не играет');
+                if (!res.ok) {
+                    if (!overlay) showState('⚠️', 'Ошибка загрузки', `HTTP ${res.status}`);
                 } else {
-                    app.innerHTML = matches.map(renderMatch).join('');
+                    const data = await res.json();
+                    const matches = data.matches || [];
+                    hasContent = true;
+                    refreshBar.style.display = 'flex';
+                    if (!matches.length) {
+                        showState('😴', 'Нет активных матчей', 'Ни один из подписанных игроков сейчас не играет');
+                    } else {
+                        app.innerHTML = matches.map(renderMatch).join('');
+                    }
                 }
             } catch (err) {
                 if (!overlay) {
