@@ -19,15 +19,19 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     };
     res.json(replyPayload);
     ```
-- **Stats Module**: `src/services/faceitService.js`. Calculates average stats (ADR, K/D) from the last N matches.
-    - **Faceit API**: Uses v4 `/players` and `/players/{id}/games/{game}/stats` endpoints.
-    - **Batching**: Processes player lookups in chunks to respect API limits (3 players concurrent). Fetches stats for all requested matches in a single call per player.
-- **Storage Module**: `src/services/storageService.js`. Manages per-chat player lists using Firestore.
-    - **Schema**: Collection `chats`, Document ID = `chatId`.
-    - **Structure**: `{ players: ["nickname1", "nickname2"] }`.
+- **Stats Module**: `src/services/faceitService.js`. Calculates average stats (ADR, K/D, kills, ELO, ELO change) from the last N matches.
+    - **Faceit API**: Uses v4 `/players`, `/players/{id}/games/{game}/stats`, and the unofficial ELO timeline endpoint. Match details fetched via `/matches/{matchId}` as fallback.
+    - **Batching**: Processes player lookups in chunks of 10 to manage API rate limits. Game stats and ELO timeline fetched in parallel per player.
+- **Storage Module**: `src/services/storageService.js`. Manages per-chat data using Firestore.
+    - **Collections**:
+        - `chats` — Document ID = `chatId`. Structure: `{ players: ["nickname1", "nickname2"] }`.
+        - `player_subscriptions` — Document ID = `playerId`. Structure: `{ playerId, nickname, subscribedChats: [chatIds] }`.
+        - `sent_match_notifications` — Document ID = `matchId_chatId`. Used for deduplication.
     - **Requirement**: Firestore database must be created in **Native Mode**.
-- **Command Logic**: `src/handlers/commandHandler.js`. Handles `/stats [N]`, `/add_player`, `/remove_player`, `/players`, `/help`.
-    - **Arguments**: `/stats` accepts an optional count `N` (2-30, default 10).
+- **Subscription Module**: `src/services/subscriptionService.js`. Handles match-start event logic triggered by FACEIT webhooks. Queries subscriptions, deduplicates notifications, and dispatches Telegram messages.
+- **Telegram Module**: `src/services/telegramService.js`. Sends messages to Telegram chats via Bot API (used for push notifications from FACEIT webhook events).
+- **Command Logic**: `src/handlers/commandHandler.js`. Handles `/stats [N]`, `/add_player`, `/remove_player`, `/players`, `/help`, `/subscribe`, `/unsubscribe`, `/my_subscriptions`.
+    - **Arguments**: `/stats` accepts an optional count `N` (2-100, default 10).
     - **Constants**: Command strings defined in `src/constants.js`.
 
 ## Developer Workflows
@@ -37,6 +41,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     3. Run `node index.js`. The server listens on `PORT` (default 8080).
 - **Request Handling**:
   - `POST /`: Handles Telegram updates (routed to `src/handlers/webhookHandler.js`).
+  - `POST /webhook/faceit`: Handles FACEIT match events (routed to `src/handlers/faceitWebhookHandler.js`).
   - `GET /`: Health check (returns 200 OK).
 - **Environment**: Node.js 20 (specified in `package.json`).
 - **Tech Stack**:
@@ -50,8 +55,8 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - Note: The `users` array is legacy and ignored by bot commands; use `/add_player`.
   - `src/config.js` consolidates env vars and `config.json`.
   - **Security**: 
-    - Use `.env` file for local `FACEIT_API_KEY`.
-    - Use Runtime Environment Variables for `FACEIT_API_KEY` in Google Cloud Functions.
+    - Use `.env` file for local `FACEIT_API_KEY`, `TELEGRAM_BOT_TOKEN`, `FACEIT_WEBHOOK_SECRET`.
+    - Use Runtime Environment Variables for secrets in Google Cloud Functions.
     - NEVER commit the actual API key to `config.json`.
 
 ## Operational Knowledge
@@ -62,11 +67,14 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 ## Key Files
 - `index.js`: Minimal entry point.
 - `src/app.js`: Express app setup.
-- `src/handlers/webhookHandler.js`: Webhook routing and parsing.
+- `src/handlers/webhookHandler.js`: Telegram webhook routing and parsing.
+- `src/handlers/faceitWebhookHandler.js`: FACEIT webhook handler (validates secret, triggers subscription logic).
 - `src/handlers/commandHandler.js`: Business logic for bot commands.
 - `src/services/faceitService.js`: CS2 stats logic.
 - `src/services/storageService.js`: Firestore database operations.
+- `src/services/subscriptionService.js`: Match-start event handling and notification dispatch.
+- `src/services/telegramService.js`: Telegram Bot API integration for push notifications.
 - `src/config.js`: Configuration loader.
 - `src/constants.js`: Bot command definitions.
 - `config.json`: Master configuration file.
-- `ai-implementation-plans/`: Directory for AI-generated implementation plans.
+- `ai-files/`: Directory for AI-related files and implementation plans.
