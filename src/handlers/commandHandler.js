@@ -157,17 +157,15 @@ async function handleMySubscriptions(chatId) {
     return `🔔 <b>Active subscriptions:</b>\n\n` + subscriptions.map(s => `• <code>${escapeHtml(s.nickname)}</code>`).join('\n');
 }
 
-function handleLive(chatId, chatType) {
+function handleLive(chatId) {
     const url = config.webapp_url;
     if (!url) {
         return '⚠️ Web app не настроен. Установите переменную окружения <code>WEBAPP_URL</code>.';
     }
-    const isPrivate = chatType === 'private';
     return {
         type: 'web_app',
         text: '🎮 Активные матчи подписанных игроков',
         url: `${url}?chatId=${chatId}`,
-        useWebAppButton: isPrivate,
     };
 }
 
@@ -188,7 +186,7 @@ async function handleCommand(command, chatId, args, apiKey, chatName, chatType) 
         case COMMANDS.MY_SUBSCRIPTIONS:
             return handleMySubscriptions(chatId);
         case COMMANDS.LIVE:
-            return handleLive(chatId, chatType);
+            return handleLive(chatId);
         case COMMANDS.HELP:
             return handleHelp();
         default:

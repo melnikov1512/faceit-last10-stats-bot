@@ -97,11 +97,21 @@ async function handleWebhook(req, res) {
             }
         }
 
-        // web_app button: web_app type in private, url type in groups (Telegram restriction)
+        // web_app inline button is restricted to private chats (Telegram returns BUTTON_TYPE_INVALID in groups).
+        // In groups, use a t.me direct link which opens the Mini App inside Telegram.
         if (result?.type === 'web_app') {
-            const button = result.useWebAppButton
-                ? { text: '📊 Открыть', web_app: { url: result.url } }
-                : { text: '📊 Открыть', url: result.url };
+            const isPrivate = message.chat.type === 'private';
+            let button;
+            if (isPrivate) {
+                button = { text: '📊 Открыть', web_app: { url: result.url } };
+            } else {
+                // Direct link opens Mini App inside Telegram; chatId passed as start_param
+                const username = config.bot_username;
+                const directUrl = username
+                    ? `https://t.me/${username}?startapp=${encodeURIComponent(chatId)}`
+                    : result.url;
+                button = { text: '📊 Открыть', url: directUrl };
+            }
             return res.json({
                 method: 'sendMessage',
                 chat_id: chatId,

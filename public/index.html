@@ -308,14 +308,19 @@
     <div id="app"></div>
 
     <script>
-        // Read chatId from URL or Telegram start_param
+        // Read chatId from URL or Telegram initData (priority order):
+        // 1. URL param ?chatId=... (private chat per-user button or inline button)
+        // 2. start_param (direct link with startapp=chatId)
+        // 3. initDataUnsafe.chat.id (group/supergroup menu button)
+        // 4. initDataUnsafe.user.id (private chat global menu button fallback)
         const params = new URLSearchParams(window.location.search);
-        let chatId = params.get('chatId');
-
-        // Also try Telegram Mini App start_param
-        if (!chatId && window.Telegram?.WebApp?.initDataUnsafe?.start_param) {
-            chatId = window.Telegram.WebApp.initDataUnsafe.start_param;
-        }
+        const tgData = window.Telegram?.WebApp?.initDataUnsafe;
+        let chatId = params.get('chatId')
+            || tgData?.start_param
+            || tgData?.chat?.id
+            || tgData?.user?.id
+            || null;
+        if (chatId) chatId = String(chatId);
 
         const app = document.getElementById('app');
 

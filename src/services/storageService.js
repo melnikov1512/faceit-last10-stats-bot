@@ -93,6 +93,8 @@ module.exports = {
     addPlayer,
     removePlayer,
     getPlayers,
+    getAllChatIds,
+    getAllSubscribedChatIds,
     // Subscriptions
     subscribeChat,
     unsubscribeChat,
@@ -108,7 +110,31 @@ module.exports = {
     removeActiveMatch,
 };
 
-// ── Subscription methods ────────────────────────────────────────────────────
+/**
+ * Get all chat IDs from the chats collection.
+ * @returns {Promise<string[]>}
+ */
+async function getAllChatIds() {
+    const snapshot = await chatCollection.select().get();
+    return snapshot.docs.map(doc => doc.id);
+}
+
+/**
+ * Get all unique chat IDs that have at least one player subscription.
+ * @returns {Promise<string[]>}
+ */
+async function getAllSubscribedChatIds() {
+    const snapshot = await playerSubscriptionsCollection.get();
+    const chatIds = new Set();
+    for (const doc of snapshot.docs) {
+        for (const chatId of (doc.data().subscribedChats || [])) {
+            chatIds.add(chatId);
+        }
+    }
+    return [...chatIds];
+}
+
+
 
 /**
  * Subscribe a chat to match notifications for a player.
