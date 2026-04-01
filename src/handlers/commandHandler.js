@@ -2,7 +2,7 @@ const { getLeaderboardStats, validatePlayer } = require('../services/faceitServi
 const config = require('../config');
 const storageService = require('../services/storageService');
 const { subscribePlayerToChat, unsubscribePlayerFromChat } = require('../services/subscriptionService');
-const { COMMANDS } = require('../constants');
+const { COMMANDS, COMMAND_LIST } = require('../commands');
 
 function escapeHtml(str) {
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -120,15 +120,13 @@ async function handleRemovePlayer(chatId, args) {
 }
 
 function handleHelp() {
-    return '🤖 <b>Bot Commands:</b>\n\n' +
-        `• <code>${COMMANDS.STATS} [matches]</code> - Get stats for the last N matches (default 10, range 2-100).\n` +
-        `• <code>${COMMANDS.ADD_PLAYER} &lt;nickname&gt;</code> - Add a player to the tracking list.\n` +
-        `• <code>${COMMANDS.REMOVE_PLAYER} &lt;nickname&gt;</code> - Remove a player from the tracking list.\n` +
-        `• <code>${COMMANDS.PLAYERS}</code> - List all tracked players in this chat.\n` +
-        `• <code>${COMMANDS.SUBSCRIBE} &lt;nickname&gt;</code> - Subscribe to match-start notifications for a player.\n` +
-        `• <code>${COMMANDS.UNSUBSCRIBE} &lt;nickname&gt;</code> - Unsubscribe from a player's notifications.\n` +
-        `• <code>${COMMANDS.MY_SUBSCRIPTIONS}</code> - List active subscriptions in this chat.\n` +
-        `• <code>${COMMANDS.HELP}</code> - Show this help message.`;
+    const lines = COMMAND_LIST.map(c => {
+        const usage = c.args
+            ? `<code>${c.command} ${c.args}</code>`
+            : `<code>${c.command}</code>`;
+        return `• ${usage} — ${c.description}`;
+    });
+    return `🤖 <b>Команды бота:</b>\n\n` + lines.join('\n');
 }
 
 async function handleSubscribe(chatId, args, apiKey) {

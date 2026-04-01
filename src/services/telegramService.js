@@ -1,13 +1,28 @@
 const axios = require('axios');
 const config = require('../config');
+const { BOT_COMMANDS } = require('../commands');
 
 /**
- * Send a message to a Telegram chat directly via Bot API.
- * Used for async notifications (e.g. FACEIT webhook events) where
- * the webhook reply mechanism is not available.
- * @param {string|number} chatId
- * @param {string} text  Markdown-formatted message
+ * Register bot commands with Telegram so they appear in the "/" menu.
+ * Safe to call on every deploy — Telegram ignores duplicate identical calls.
  */
+async function setMyCommands() {
+    const token = config.telegram_bot_token;
+    if (!token) {
+        console.error('setMyCommands: TELEGRAM_BOT_TOKEN is not configured');
+        return;
+    }
+
+    try {
+        await axios.post(`https://api.telegram.org/bot${token}/setMyCommands`, {
+            commands: BOT_COMMANDS,
+        });
+        console.log('Bot commands registered successfully');
+    } catch (error) {
+        console.error('Failed to register bot commands:', error.message);
+    }
+}
+
 async function sendMessage(chatId, text) {
     const token = config.telegram_bot_token;
     if (!token) {
@@ -27,4 +42,4 @@ async function sendMessage(chatId, text) {
     }
 }
 
-module.exports = { sendMessage };
+module.exports = { sendMessage, setMyCommands };

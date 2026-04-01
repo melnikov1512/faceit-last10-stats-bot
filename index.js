@@ -6,6 +6,10 @@
  */
 require('dotenv').config();
 const app = require('./src/app');
+const { setMyCommands } = require('./src/services/telegramService');
+
+// Register bot commands on every startup so the "/" menu stays up to date
+setMyCommands();
 
 // Start server on port 8080 if run directly
 if (require.main === module) {

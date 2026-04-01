@@ -1,6 +1,6 @@
 const { handleCommand } = require('./commandHandler');
 const config = require('../config');
-const { COMMANDS } = require('../constants');
+const { COMMANDS } = require('../commands');
 
 async function handleWebhook(req, res) {
     const { body } = req;

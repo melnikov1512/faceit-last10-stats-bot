@@ -46,7 +46,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **Supported Event**: `match_status_ready`.
     - **FACEIT Webhook Handler**: `src/handlers/faceitWebhookHandler.js` validates the `x-faceit-webhook-secret` header, responds `200` immediately, then processes the event asynchronously via `handleMatchEvent()`.
 - **Telegram Module**: `src/services/telegramService.js`. Sends messages to Telegram chats via Bot API (used for push notifications from FACEIT webhook events, not the webhook reply mechanism).
-- **Command Logic**: `src/handlers/commandHandler.js`. Handles the following commands (all defined in `src/constants.js`):
+- **Command Logic**: `src/handlers/commandHandler.js`. Handles the following commands (all defined in `src/commands.js`):
     | Command | Arguments | Purpose |
     |---|---|---|
     | `/stats` | `[N]` (2–100, default 10) | Show stats table for tracked players |
@@ -79,7 +79,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **Database**: Google Cloud Firestore (for per-chat persistence).
     - **Configuration**: `dotenv` (for local secrets management).
     - **Dev tooling**: `concurrently` for running ngrok + server in parallel.
-    - **Constants**: `src/constants.js` defines command strings and fixed values.
+    - **Constants**: `src/commands.js` is the single source of truth for all commands (`COMMAND_LIST`, `COMMANDS`, `BOT_COMMANDS`). `src/constants.js` re-exports `COMMANDS` for backward compatibility.
 - **Configuration**:
   - `config.json` in root directory.
     - Note: The `users` array is legacy and ignored by bot commands; use `/add_player`.
@@ -113,7 +113,8 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/services/subscriptionService.js`: Match-start event handling and notification dispatch.
 - `src/services/telegramService.js`: Telegram Bot API integration for push notifications.
 - `src/config.js`: Configuration loader (env vars + config.json).
-- `src/constants.js`: Bot command string definitions.
+- `src/commands.js`: **Единый реестр команд.** Экспортирует `COMMAND_LIST` (полные описания), `COMMANDS` (словарь строк), `BOT_COMMANDS` (для `setMyCommands` API). Единственное место для добавления новых команд.
+- `src/constants.js`: Реэкспорт `COMMANDS` из `src/commands.js` (обратная совместимость).
 - `config.json`: Master configuration file (default values; no secrets).
 - `scripts/set-webhook.js`: Registers ngrok URL as Telegram webhook (runs as `predev`).
 - `ai-files/LOCAL_TESTING.md`: Local testing guide (Russian).
