@@ -4,6 +4,10 @@ const storageService = require('../services/storageService');
 const { subscribePlayerToChat, unsubscribePlayerFromChat } = require('../services/subscriptionService');
 const { COMMANDS } = require('../constants');
 
+function escapeHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function formatStatsMessage(leaderboard, requestedMatchesCount) {
     if (!leaderboard || leaderboard.length === 0) {
         return 'Failed to retrieve stats for any player.';
@@ -28,14 +32,13 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
     const nameW = Math.max(4, Math.min(longestName, MAX_WIDTH - FIXED)); // max 15
 
     const titleCount = requestedMatchesCount || leaderboard[0].matchesAnalyzed || 10;
-    let message = `📊 *FACEIT Last ${titleCount} Matches Stats*\n\n`;
-    message += '```\n';
+    let table = '';
 
     // ── header ──────────────────────────────────────────────
     const h = (s) => s.padStart(COL);
-    message += `${'Name'.padEnd(nameW)}${SEP}${h('ADR')}${SEP}${h('K/D')}${SEP}${h('Kill')}${SEP}${h('ELO')}${SEP}${h('±ELO')}\n`;
+    table += `${'Name'.padEnd(nameW)}${SEP}${h('ADR')}${SEP}${h('K/D')}${SEP}${h('Kill')}${SEP}${h('ELO')}${SEP}${h('±ELO')}\n`;
     const dash = '-'.repeat(COL);
-    message += `${'-'.repeat(nameW)}${SEP}${dash}${SEP}${dash}${SEP}${dash}${SEP}${dash}${SEP}${dash}\n`;
+    table += `${'-'.repeat(nameW)}${SEP}${dash}${SEP}${dash}${SEP}${dash}${SEP}${dash}${SEP}${dash}\n`;
 
     // ── rows ─────────────────────────────────────────────────
     leaderboard.forEach(player => {
@@ -53,18 +56,17 @@ function formatStatsMessage(leaderboard, requestedMatchesCount) {
             ? `${player.elo_change >= 0 ? '+' : ''}${player.elo_change}`.padStart(COL)
             : ' N/A';
 
-        message += `${name}${SEP}${adr}${SEP}${kd}${SEP}${kill}${SEP}${elo}${SEP}${chg}\n`;
+        table += `${escapeHtml(name)}${SEP}${adr}${SEP}${kd}${SEP}${kill}${SEP}${elo}${SEP}${chg}\n`;
     });
 
-    message += '```';
-    return message;
+    return `<b>📊 FACEIT Last ${titleCount} Matches Stats</b>\n\n<pre>${table}</pre>`;
 }
 
 async function handleStats(chatId, args, apiKey) {
     const players = await storageService.getPlayers(chatId);
 
     if (players.length === 0) {
-        return `⚠️ No players tracked in this chat. Use \`${COMMANDS.ADD_PLAYER} <nickname>\` to start.`;
+        return `⚠️ No players tracked in this chat. Use <code>${COMMANDS.ADD_PLAYER} &lt;nickname&gt;</code> to start.`;
     }
 
     let matchesCount = config.last_matches || 10;
@@ -86,59 +88,59 @@ async function handleStats(chatId, args, apiKey) {
 async function handlePlayers(chatId) {
     const players = await storageService.getPlayers(chatId);
     if (players.length === 0) {
-        return `⚠️ No players tracked in this chat. Use \`${COMMANDS.ADD_PLAYER} <nickname>\` to start.`;
+        return `⚠️ No players tracked in this chat. Use <code>${COMMANDS.ADD_PLAYER} &lt;nickname&gt;</code> to start.`;
     }
-    return `📋 *Tracked Players:*\n\n` + players.map(p => `• \`${p}\``).join('\n');
+    return `📋 <b>Tracked Players:</b>\n\n` + players.map(p => `• <code>${escapeHtml(p)}</code>`).join('\n');
 }
 
 async function handleAddPlayer(chatId, args, apiKey) {
     if (args.length === 0) {
-        return `⚠️ Usage: \`${COMMANDS.ADD_PLAYER} <nickname>\``;
+        return `⚠️ Usage: <code>${COMMANDS.ADD_PLAYER} &lt;nickname&gt;</code>`;
     } else {
         const nickname = args[0];
         const isValid = await validatePlayer(apiKey, nickname);
 
         if (isValid) {
             await storageService.addPlayer(chatId, nickname);
-            return `✅ Player *${nickname}* added to the list.`;
+            return `✅ Player <b>${escapeHtml(nickname)}</b> added to the list.`;
         } else {
-            return `❌ Player *${nickname}* not found on FACEIT.`;
+            return `❌ Player <b>${escapeHtml(nickname)}</b> not found on FACEIT.`;
         }
     }
 }
 
 async function handleRemovePlayer(chatId, args) {
     if (args.length === 0) {
-        return `⚠️ Usage: \`${COMMANDS.REMOVE_PLAYER} <nickname>\``;
+        return `⚠️ Usage: <code>${COMMANDS.REMOVE_PLAYER} &lt;nickname&gt;</code>`;
     } else {
         const nickname = args[0];
         await storageService.removePlayer(chatId, nickname);
-        return `🗑️ Player *${nickname}* removed from the list.`;
+        return `🗑️ Player <b>${escapeHtml(nickname)}</b> removed from the list.`;
     }
 }
 
 function handleHelp() {
-    return '🤖 *Bot Commands:*\n\n' +
-        `• \`${COMMANDS.STATS} [matches]\` - Get stats for the last N matches (default 10, range 2-100).\n` +
-        `• \`${COMMANDS.ADD_PLAYER} <nickname>\` - Add a player to the tracking list.\n` +
-        `• \`${COMMANDS.REMOVE_PLAYER} <nickname>\` - Remove a player from the tracking list.\n` +
-        `• \`${COMMANDS.PLAYERS}\` - List all tracked players in this chat.\n` +
-        `• \`${COMMANDS.SUBSCRIBE} <nickname>\` - Subscribe to match-start notifications for a player.\n` +
-        `• \`${COMMANDS.UNSUBSCRIBE} <nickname>\` - Unsubscribe from a player's notifications.\n` +
-        `• \`${COMMANDS.MY_SUBSCRIPTIONS}\` - List active subscriptions in this chat.\n` +
-        `• \`${COMMANDS.HELP}\` - Show this help message.`;
+    return '🤖 <b>Bot Commands:</b>\n\n' +
+        `• <code>${COMMANDS.STATS} [matches]</code> - Get stats for the last N matches (default 10, range 2-100).\n` +
+        `• <code>${COMMANDS.ADD_PLAYER} &lt;nickname&gt;</code> - Add a player to the tracking list.\n` +
+        `• <code>${COMMANDS.REMOVE_PLAYER} &lt;nickname&gt;</code> - Remove a player from the tracking list.\n` +
+        `• <code>${COMMANDS.PLAYERS}</code> - List all tracked players in this chat.\n` +
+        `• <code>${COMMANDS.SUBSCRIBE} &lt;nickname&gt;</code> - Subscribe to match-start notifications for a player.\n` +
+        `• <code>${COMMANDS.UNSUBSCRIBE} &lt;nickname&gt;</code> - Unsubscribe from a player's notifications.\n` +
+        `• <code>${COMMANDS.MY_SUBSCRIPTIONS}</code> - List active subscriptions in this chat.\n` +
+        `• <code>${COMMANDS.HELP}</code> - Show this help message.`;
 }
 
 async function handleSubscribe(chatId, args, apiKey) {
     if (args.length === 0) {
-        return `⚠️ Usage: \`${COMMANDS.SUBSCRIBE} <nickname>\``;
+        return `⚠️ Usage: <code>${COMMANDS.SUBSCRIBE} &lt;nickname&gt;</code>`;
     }
     return subscribePlayerToChat(chatId, args[0], apiKey);
 }
 
 async function handleUnsubscribe(chatId, args, apiKey) {
     if (args.length === 0) {
-        return `⚠️ Usage: \`${COMMANDS.UNSUBSCRIBE} <nickname>\``;
+        return `⚠️ Usage: <code>${COMMANDS.UNSUBSCRIBE} &lt;nickname&gt;</code>`;
     }
     return unsubscribePlayerFromChat(chatId, args[0], apiKey);
 }
@@ -146,9 +148,9 @@ async function handleUnsubscribe(chatId, args, apiKey) {
 async function handleMySubscriptions(chatId) {
     const subscriptions = await storageService.getChatSubscriptions(chatId);
     if (subscriptions.length === 0) {
-        return `📭 No active subscriptions. Use \`${COMMANDS.SUBSCRIBE} <nickname>\` to subscribe.`;
+        return `📭 No active subscriptions. Use <code>${COMMANDS.SUBSCRIBE} &lt;nickname&gt;</code> to subscribe.`;
     }
-    return `🔔 *Active subscriptions:*\n\n` + subscriptions.map(s => `• \`${s.nickname}\``).join('\n');
+    return `🔔 <b>Active subscriptions:</b>\n\n` + subscriptions.map(s => `• <code>${escapeHtml(s.nickname)}</code>`).join('\n');
 }
 
 async function handleCommand(command, chatId, args, apiKey) {

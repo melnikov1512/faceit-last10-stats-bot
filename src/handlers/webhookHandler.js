@@ -49,7 +49,7 @@ async function handleWebhook(req, res) {
             method: 'sendMessage',
             chat_id: chatId,
             text: responseText,
-            parse_mode: 'Markdown'
+            parse_mode: 'HTML'
         };
 
         res.json(replyPayload);
