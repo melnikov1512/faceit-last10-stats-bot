@@ -12,6 +12,8 @@
    3. Ecosystem CLI tools (`npm`, `git`, `gcloud`, etc.)
    4. Custom scripts — use only as a last resort when built-in tools cannot accomplish the task.
 
+3. **Keep AGENTS.md up to date.** After making any changes to the codebase (new files, renamed files, changed architecture, new commands, new env vars, changed workflows, etc.) — update the relevant sections of this file before finishing the task.
+
 ## Project Overview
 This is a Node.js Telegram bot designed to run as a **Google Cloud Function** (HTTP Trigger). It fetches **FACEIT Data API v4** statistics for **Counter-Strike 2 (CS2)** and communicates with Telegram via **Webhook Replies**.
 
