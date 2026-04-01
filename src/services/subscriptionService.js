@@ -161,11 +161,13 @@ async function handleMatchEvent(payload) {
             const isGroup = Number(chatId) < 0;
             if (isGroup && config.bot_username) {
                 // Groups don't support web_app inline buttons — use t.me direct link
-                const directLink = `https://t.me/${config.bot_username}?startapp=${encodeURIComponent(chatId)}&mode=compact`;
+                // Encode chatId and matchId in startapp: "chatId_matchId"
+                const startapp = encodeURIComponent(`${chatId}_${matchId}`);
+                const directLink = `https://t.me/${config.bot_username}?startapp=${startapp}&mode=compact`;
                 inlineButtons.push({ text: '📊 Составы и счёт', url: directLink });
             } else if (!isGroup) {
                 // Private chats support web_app inline buttons
-                const webAppUrl = `${config.webapp_url}?chatId=${chatId}`;
+                const webAppUrl = `${config.webapp_url}?chatId=${chatId}&matchId=${matchId}`;
                 inlineButtons.push({ text: '📊 Составы и счёт', web_app: { url: webAppUrl } });
             }
         }

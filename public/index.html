@@ -347,7 +347,7 @@
     </style>
 </head>
 <body>
-    <h1>🎮 Активные матчи</h1>
+    <h1 id="page-title">🎮 Активные матчи</h1>
     <div id="refresh-bar" class="refresh-bar" style="display:none">
         <button id="refresh-btn" class="refresh-icon-btn" onclick="manualRefresh()" title="Обновить">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -362,18 +362,32 @@
     <div id="app"></div>
 
     <script>
-        // Read chatId from URL or Telegram initData (priority order):
-        // 1. URL param ?chatId=... (private chat per-user button or inline button)
-        // 2. start_param (direct link with startapp=chatId)
-        // 3. initDataUnsafe.chat.id (group/supergroup menu button)
-        // 4. initDataUnsafe.user.id (private chat global menu button fallback)
+        // Read chatId / matchId from URL or Telegram initData.
+        // Priority for chatId:
+        //   1. URL param ?chatId=...  (private chat web_app button)
+        //   2. start_param — either "chatId" or "chatId_matchId" (group direct link)
+        //   3. initDataUnsafe.chat.id  (group menu button)
+        //   4. initDataUnsafe.user.id  (private menu button fallback)
+        // matchId is set when opened from a notification button (single-match view).
         const params = new URLSearchParams(window.location.search);
         const tgData = window.Telegram?.WebApp?.initDataUnsafe;
-        let chatId = params.get('chatId')
-            || tgData?.start_param
-            || tgData?.chat?.id
-            || tgData?.user?.id
-            || null;
+
+        let chatId   = params.get('chatId') || null;
+        let matchId  = params.get('matchId') || null;
+
+        // Parse start_param: "chatId" or "chatId_matchId"
+        const startParam = tgData?.start_param;
+        if (startParam && !chatId) {
+            const sep = startParam.indexOf('_');
+            if (sep > -1) {
+                chatId  = startParam.substring(0, sep);
+                matchId = matchId || startParam.substring(sep + 1);
+            } else {
+                chatId = startParam;
+            }
+        }
+
+        if (!chatId) chatId = String(tgData?.chat?.id || tgData?.user?.id || '');
         if (chatId) chatId = String(chatId);
 
         const app       = document.getElementById('app');
@@ -532,16 +546,26 @@
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
 
+                let matches = data.matches || [];
+
+                // Single-match mode: filter to the specific match from notification
+                if (matchId) {
+                    matches = matches.filter(m => m.matchId === matchId);
+                }
+
                 hasContent = true;
                 refreshBar.style.display = 'flex';
 
-                if (!data.matches?.length) {
-                    app.innerHTML = `<div class="state">
-                        <span>😴 Нет активных матчей</span>
-                        <span style="font-size:13px">Ни один из подписанных игроков сейчас не играет</span>
-                    </div>`;
+                if (!matches.length) {
+                    const msg = matchId
+                        ? '⏱ Матч завершён или недоступен'
+                        : '😴 Нет активных матчей';
+                    const sub = matchId
+                        ? 'Информация о матче уже недоступна'
+                        : 'Ни один из подписанных игроков сейчас не играет';
+                    app.innerHTML = `<div class="state"><span>${msg}</span><span style="font-size:13px">${sub}</span></div>`;
                 } else {
-                    app.innerHTML = data.matches.map(renderMatch).join('');
+                    app.innerHTML = matches.map(renderMatch).join('');
                 }
             } catch (err) {
                 if (!overlay) {
@@ -555,6 +579,8 @@
 
         // ── Init ─────────────────────────────────────────────────
         if (window.Telegram?.WebApp) Telegram.WebApp.ready();
+        // Set title based on mode
+        if (matchId) document.getElementById('page-title').textContent = '📊 Матч';
         loadMatches(false);
     </script>
 </body>
