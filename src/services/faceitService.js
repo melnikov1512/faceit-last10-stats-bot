@@ -338,6 +338,49 @@ async function getMatchStats(apiKey, matchId) {
 }
 
 /**
+ * Extract a single player's stats from a FACEIT match stats response.
+ * Looks through rounds[0].teams[].players[] for a matching player_id.
+ * @param {object} matchStats  Response from GET /matches/{id}/stats
+ * @param {string} playerId
+ * @returns {{ kills, deaths, assists, kd, adr, hsPercent, result, map }|null}
+ */
+function extractPlayerMatchStats(matchStats, playerId) {
+    if (!matchStats?.rounds?.length) return null;
+    const round = matchStats.rounds[0];
+    const map   = round.round_stats?.Map ?? null;
+
+    for (const team of round.teams || []) {
+        const player = (team.players || []).find(p => p.player_id === playerId);
+        if (player) {
+            const s = player.player_stats || {};
+            return {
+                kills:     parseInt(s['Kills'], 10)          || 0,
+                deaths:    parseInt(s['Deaths'], 10)         || 0,
+                assists:   parseInt(s['Assists'], 10)        || 0,
+                kd:        parseFloat(s['K/D Ratio'])        || 0,
+                adr:       parseFloat(s['ADR'])              || 0,
+                hsPercent: parseInt(s['Headshots %'], 10)   || 0,
+                result:    parseInt(s['Result'], 10),          // 1 = win, 0 = loss
+                map,
+            };
+        }
+    }
+    return null;
+}
+
+/**
+ * Fetch the ELO delta for the player's most recent match from the unofficial ELO timeline.
+ * @param {string} playerId
+ * @returns {Promise<number|null>}
+ */
+async function getLastMatchEloChange(playerId) {
+    const items = await getPlayerEloTimeline(playerId, 1);
+    if (!items?.length) return null;
+    const delta = parseInt(items[0].elo_delta, 10);
+    return isNaN(delta) ? null : delta;
+}
+
+/**
  * Enrich a match object's rosters with each player's current ELO and skill level.
  * Fetches all roster players in parallel (chunked).
  * @param {string} apiKey
@@ -385,5 +428,7 @@ module.exports = {
     getPlayerDetailsByNickname,
     getMatchDetails,
     getMatchStats,
+    extractPlayerMatchStats,
+    getLastMatchEloChange,
     enrichMatchWithRosterElos,
 };

@@ -1,7 +1,7 @@
 const config = require('../config');
-const { handleMatchEvent } = require('../services/subscriptionService');
+const { handleMatchEvent, handleMatchFinishedEvent } = require('../services/subscriptionService');
 
-const SUPPORTED_EVENTS = new Set(['match_status_ready']);
+const SUPPORTED_EVENTS = new Set(['match_status_ready', 'match_status_finished']);
 
 async function handleFaceitWebhook(req, res) {
     // Verify webhook secret
@@ -27,7 +27,11 @@ async function handleFaceitWebhook(req, res) {
     res.sendStatus(200);
 
     try {
-        await handleMatchEvent(body.payload);
+        if (eventType === 'match_status_ready') {
+            await handleMatchEvent(body.payload);
+        } else if (eventType === 'match_status_finished') {
+            await handleMatchFinishedEvent(body.payload);
+        }
     } catch (error) {
         console.error('[FACEIT WEBHOOK] Error handling event:', error);
     }

@@ -107,6 +107,9 @@ async function handlePlayers(chatId, apiKey) {
         })))
     );
 
+    // Sort by ELO descending; players without ELO go to the end
+    details.sort((a, b) => (b.elo ?? -1) - (a.elo ?? -1));
+
     const imageBuffer = await generatePlayersListImage(details);
     const lines = details.map((p, i) =>
         `${i + 1}. <b>${escapeHtml(p.nickname ?? '—')}</b>${p.elo != null ? ` — ${p.elo} ELO` : ''}`

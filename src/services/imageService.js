@@ -653,4 +653,195 @@ async function generatePlayersListImage(players) {
     return canvas.toBuffer('image/png');
 }
 
-module.exports = { generateStatsImage, generateMatchImage, generatePlayerCard, generatePlayersListImage };
+// ── Match result image (finish notification for <2000 ELO players) ─────────────
+
+const RESULT_CARD = {
+    WIDTH:    540,
+    PADDING:  24,
+    ACCENT_H: 4,
+    HEADER_H: 76,
+    PLAYER_H: 72,
+    STATS_H:  72,
+    FOOTER_H: 30,
+    AVATAR_R: 28,
+    BADGE_R:  16,
+};
+
+/**
+ * Generates a single-player match result card as a PNG buffer.
+ * @param {{
+ *   nickname:   string,
+ *   avatar_url: string|null,
+ *   skillLevel: number|null,
+ *   currentElo: number|null,
+ *   eloChange:  number|null,
+ *   kills:      number,
+ *   deaths:     number,
+ *   assists:    number,
+ *   kd:         number,
+ *   adr:        number,
+ *   hsPercent:  number,
+ *   result:     number,   // 1 = win, 0 = loss
+ *   competition: string|null,
+ *   map:        string|null,
+ * }} data
+ * @returns {Promise<Buffer>}
+ */
+async function generateMatchResultImage(data) {
+    const {
+        nickname, avatar_url, skillLevel,
+        currentElo, eloChange,
+        kills, deaths, assists, kd, adr, hsPercent, result,
+        competition, map,
+    } = data;
+
+    const {
+        WIDTH: W, PADDING: P, ACCENT_H, HEADER_H,
+        PLAYER_H, STATS_H, FOOTER_H, AVATAR_R, BADGE_R,
+    } = RESULT_CARD;
+
+    const HEIGHT = ACCENT_H + HEADER_H + PLAYER_H + 1 + STATS_H + FOOTER_H;
+
+    let avatar = null;
+    if (avatar_url) {
+        try { avatar = await loadImage(avatar_url); } catch { /* fallback to placeholder */ }
+    }
+
+    const canvas = createCanvas(W, HEIGHT);
+    const ctx    = canvas.getContext('2d');
+    ctx.textBaseline = 'alphabetic';
+
+    // Background
+    ctx.fillStyle = COLOR.bg;
+    ctx.fillRect(0, 0, W, HEIGHT);
+
+    // ── Orange accent bar ────────────────────────────────────────────────────────
+    ctx.fillStyle = COLOR.accent;
+    ctx.fillRect(0, 0, W, ACCENT_H);
+
+    // ── Header ───────────────────────────────────────────────────────────────────
+    ctx.fillStyle = COLOR.headerBg;
+    ctx.fillRect(0, ACCENT_H, W, HEADER_H);
+
+    ctx.fillStyle = COLOR.text;
+    ctx.font      = `bold 22px ${FONT_FAMILY}`;
+    ctx.textAlign = 'left';
+    ctx.fillText('MATCH RESULT', P, ACCENT_H + 36);
+
+    const metaParts = [competition, map].filter(Boolean);
+    ctx.fillStyle = COLOR.subtext;
+    ctx.font      = `14px ${FONT_FAMILY}`;
+    ctx.fillText(metaParts.length ? metaParts.join('  ·  ') : 'CS2', P, ACCENT_H + 62);
+
+    // WIN / LOSE badge
+    const isWin      = result === 1 || result === '1';
+    const badgeLabel = isWin ? 'WIN' : 'LOSE';
+    const badgeColor = isWin ? COLOR.positive : COLOR.negative;
+    ctx.font = `bold 16px ${FONT_FAMILY}`;
+    const bw = ctx.measureText(badgeLabel).width + 24;
+    const bh = 28;
+    const bx = W - P - bw;
+    const by = ACCENT_H + HEADER_H / 2 - bh / 2;
+
+    roundRect(ctx, bx, by, bw, bh, 5);
+    ctx.fillStyle = badgeColor + '33';
+    ctx.fill();
+    roundRect(ctx, bx, by, bw, bh, 5);
+    ctx.strokeStyle = badgeColor;
+    ctx.lineWidth   = 1.5;
+    ctx.stroke();
+    ctx.fillStyle    = badgeColor;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(badgeLabel, bx + bw / 2, by + bh / 2);
+    ctx.textBaseline = 'alphabetic';
+
+    ctx.fillStyle = COLOR.separator;
+    ctx.fillRect(0, ACCENT_H + HEADER_H - 1, W, 1);
+
+    // ── Player row ───────────────────────────────────────────────────────────────
+    const playerY   = ACCENT_H + HEADER_H;
+    const playerMidY = playerY + PLAYER_H / 2;
+    const avatarCx  = P + AVATAR_R;
+
+    if (avatar) {
+        drawCircularAvatar(ctx, avatar, avatarCx, playerMidY, AVATAR_R);
+    } else {
+        drawAvatarPlaceholder(ctx, nickname?.[0], avatarCx, playerMidY, AVATAR_R);
+    }
+
+    const badgeCx = avatarCx + AVATAR_R + 10 + BADGE_R;
+    drawSkillBadge(ctx, skillLevel, badgeCx, playerMidY, BADGE_R);
+
+    const nameX   = badgeCx + BADGE_R + 14;
+    const maxNameW = W - nameX - P - 120;
+    ctx.fillStyle = COLOR.text;
+    ctx.font      = `bold 20px ${FONT_FAMILY}`;
+    ctx.textAlign = 'left';
+    ctx.fillText(truncateText(ctx, nickname, maxNameW), nameX, playerMidY - 2);
+
+    // ELO + delta (right side, two lines)
+    const eloStr = currentElo != null ? String(currentElo) : '—';
+    ctx.fillStyle = COLOR.text;
+    ctx.font      = `bold 22px ${FONT_FAMILY}`;
+    ctx.textAlign = 'right';
+    ctx.fillText(eloStr, W - P, playerMidY - 4);
+
+    ctx.fillStyle = COLOR.subtext;
+    ctx.font      = `13px ${FONT_FAMILY}`;
+    ctx.fillText('ELO', W - P, playerMidY + 14);
+
+    if (eloChange != null) {
+        const sign      = eloChange >= 0 ? '+' : '';
+        const deltaText = `${sign}${eloChange} ELO`;
+        const deltaColor = eloChange > 0 ? COLOR.positive : eloChange < 0 ? COLOR.negative : COLOR.subtext;
+        ctx.fillStyle = deltaColor;
+        ctx.font      = `bold 14px ${FONT_FAMILY}`;
+        ctx.textAlign = 'right';
+        ctx.fillText(deltaText, W - P, playerMidY + 32);
+    }
+
+    // Separator
+    ctx.fillStyle = COLOR.separator;
+    ctx.fillRect(0, playerY + PLAYER_H - 1, W, 1);
+
+    // ── Stats row ─────────────────────────────────────────────────────────────────
+    const statsY = playerY + PLAYER_H;
+    ctx.fillStyle = COLOR.rowAlt;
+    ctx.fillRect(0, statsY, W, STATS_H);
+
+    const statCols = [
+        { label: 'KILLS',   value: String(kills)                          },
+        { label: 'ASSISTS', value: String(assists)                         },
+        { label: 'K/D',     value: parseFloat(kd).toFixed(2)              },
+        { label: 'ADR',     value: parseFloat(adr).toFixed(1)             },
+        { label: 'HS%',     value: `${hsPercent}%`                        },
+    ];
+
+    const colW = (W - 2 * P) / statCols.length;
+    statCols.forEach((col, i) => {
+        const colCx = P + colW * i + colW / 2;
+
+        ctx.fillStyle = COLOR.subtext;
+        ctx.font      = `12px ${FONT_FAMILY}`;
+        ctx.textAlign = 'center';
+        ctx.fillText(col.label, colCx, statsY + 24);
+
+        ctx.fillStyle = COLOR.text;
+        ctx.font      = `bold 22px ${FONT_FAMILY}`;
+        ctx.fillText(col.value, colCx, statsY + 56);
+    });
+
+    // ── Footer ────────────────────────────────────────────────────────────────────
+    const footerY = HEIGHT - FOOTER_H;
+    ctx.fillStyle = COLOR.headerBg;
+    ctx.fillRect(0, footerY, W, FOOTER_H);
+    ctx.fillStyle = COLOR.subtext;
+    ctx.font      = `12px ${FONT_FAMILY}`;
+    ctx.textAlign = 'right';
+    ctx.fillText('FACEIT Stats Bot', W - P, footerY + FOOTER_H / 2 + 4);
+
+    return canvas.toBuffer('image/png');
+}
+
+module.exports = { generateStatsImage, generateMatchImage, generateMatchResultImage, generatePlayerCard, generatePlayersListImage };
