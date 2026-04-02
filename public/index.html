@@ -139,6 +139,15 @@
             font-size: 19px;
         }
 
+        .match-map-img {
+            width: 34px; height: 34px;
+            border-radius: 7px;
+            object-fit: cover;
+            flex-shrink: 0;
+            display: block;
+            background: #2C2C2C;
+        }
+
         .match-meta { min-width: 0; }
 
         .match-competition {
@@ -652,6 +661,23 @@
             autoRefreshTimer = setTimeout(loader, AUTO_REFRESH_SEC * 1000);
         }
 
+        function humanizeMapName(name) {
+            if (!name) return null;
+            // Already human-readable (from stats API) if it doesn't contain underscore prefix pattern
+            // Handles: de_dust2 → Dust2, de_inferno → Inferno, cs_office → Office, ar_baggage → Baggage
+            const KNOWN = {
+                de_dust2: 'Dust2', de_inferno: 'Inferno', de_mirage: 'Mirage',
+                de_nuke: 'Nuke', de_overpass: 'Overpass', de_ancient: 'Ancient',
+                de_anubis: 'Anubis', de_vertigo: 'Vertigo', de_cache: 'Cache',
+                de_train: 'Train', de_tuscan: 'Tuscan', de_assembly: 'Assembly',
+                de_cbble: 'Cobblestone', cs_office: 'Office', ar_baggage: 'Baggage',
+            };
+            if (KNOWN[name]) return KNOWN[name];
+            // Generic: strip prefix (de_, cs_, ar_) and capitalize
+            const stripped = name.replace(/^[a-z]+_/, '');
+            return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+        }
+
         function skillClass(level) {
             const l = parseInt(level);
             return l ? `sl-${l}` : '';
@@ -825,15 +851,29 @@
         }
 
         function renderMatch(match) {
-            const metaParts = [match.region, match.best_of ? `BO${match.best_of}` : null].filter(Boolean);
+            // Resolve map name: prefer voting data, fall back to first map in stats
+            const rawMapName = match.mapInfo?.name || match.matchStats?.maps?.[0]?.map || null;
+            const mapName    = rawMapName ? humanizeMapName(rawMapName) : null;
+            const mapImage   = match.mapInfo?.image || null;
+
+            const metaParts = [
+                mapName,
+                match.region,
+                match.best_of ? `BO${match.best_of}` : null,
+            ].filter(Boolean);
+
             const extIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF5500" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;display:block"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
             const hasStats = !!match.matchStats;
             const multiMap = hasStats && match.matchStats.maps.length > 1;
+
+            const iconHtml = mapImage
+                ? `<img class="match-map-img" src="${mapImage}" alt="${escHtml(mapName || '')}" onerror="this.outerHTML='<div class=\\'match-game-icon\\'>🎮</div>'">`
+                : `<div class="match-game-icon">🎮</div>`;
             return `
                 <div class="match-card">
                     <div class="match-header">
                         <div class="match-header-left">
-                            <div class="match-game-icon">🎮</div>
+                            ${iconHtml}
                             <div class="match-meta">
                                 <div class="match-competition">${escHtml(match.competition_name || 'CS2 Match')}</div>
                                 ${metaParts.length ? `<div class="match-details">${metaParts.join(' · ')}</div>` : ''}

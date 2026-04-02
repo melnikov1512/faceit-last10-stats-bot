@@ -29,6 +29,16 @@ async function formatMatchResponse(match, trackedPlayerIds, nicknameById) {
             .map(id => nicknameById.get(id) || id)
     )];
 
+    // Extract map info from voting data (available for live/ready matches)
+    const mapVoting = enriched.voting?.map;
+    const mapPick   = mapVoting?.pick?.[0] || null;
+    const mapEntity = mapPick
+        ? (mapVoting?.entities || []).find(e => e.class_name === mapPick || e.guid === mapPick)
+        : null;
+    const mapInfo = mapPick
+        ? { name: mapPick, image: mapEntity?.image_lg || mapEntity?.image_sm || null }
+        : null;
+
     return {
         matchId,
         status:           enriched.status,
@@ -36,6 +46,7 @@ async function formatMatchResponse(match, trackedPlayerIds, nicknameById) {
         region:           enriched.region,
         best_of:          enriched.best_of,
         results:          enriched.results || null,
+        mapInfo,
         teams: {
             faction1: { name: faction1.name, stats: faction1.stats || null, roster: markTracked(faction1.roster) },
             faction2: { name: faction2.name, stats: faction2.stats || null, roster: markTracked(faction2.roster) },
