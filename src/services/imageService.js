@@ -780,25 +780,28 @@ async function generateMatchResultImage(data) {
     ctx.textAlign = 'left';
     ctx.fillText(truncateText(ctx, nickname, maxNameW), nameX, playerMidY - 2);
 
-    // ELO + delta (right side, two lines)
+    // ELO + delta (right side) — grouped as a tight two-line block
     const eloStr = currentElo != null ? String(currentElo) : '—';
-    ctx.fillStyle = COLOR.text;
-    ctx.font      = `bold 22px ${FONT_FAMILY}`;
     ctx.textAlign = 'right';
-    ctx.fillText(eloStr, W - P, playerMidY - 4);
-
-    ctx.fillStyle = COLOR.subtext;
-    ctx.font      = `13px ${FONT_FAMILY}`;
-    ctx.fillText('ELO', W - P, playerMidY + 14);
 
     if (eloChange != null) {
-        const sign      = eloChange >= 0 ? '+' : '';
-        const deltaText = `${sign}${eloChange} ELO`;
+        // Two-line block centred in the row: number on top, delta closely below
+        const sign       = eloChange >= 0 ? '+' : '';
+        const deltaText  = `${sign}${eloChange} ELO`;
         const deltaColor = eloChange > 0 ? COLOR.positive : eloChange < 0 ? COLOR.negative : COLOR.subtext;
+
+        ctx.fillStyle = COLOR.text;
+        ctx.font      = `bold 22px ${FONT_FAMILY}`;
+        ctx.fillText(eloStr, W - P, playerMidY - 8);
+
         ctx.fillStyle = deltaColor;
         ctx.font      = `bold 14px ${FONT_FAMILY}`;
-        ctx.textAlign = 'right';
-        ctx.fillText(deltaText, W - P, playerMidY + 32);
+        ctx.fillText(deltaText, W - P, playerMidY + 16);
+    } else {
+        // Single centred line when no delta available
+        ctx.fillStyle = COLOR.text;
+        ctx.font      = `bold 22px ${FONT_FAMILY}`;
+        ctx.fillText(`${eloStr} ELO`, W - P, playerMidY + 7);
     }
 
     // Separator
