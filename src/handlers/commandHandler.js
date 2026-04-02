@@ -4,7 +4,6 @@ const { MATCH_STATUS_LABELS } = require('../constants');
 const { escapeHtml } = require('../utils');
 const config = require('../config');
 const storageService = require('../services/storageService');
-const { subscribePlayerToChat, unsubscribePlayerFromChat } = require('../services/subscriptionService');
 const { COMMANDS, COMMAND_LIST } = require('../commands');
 const { generateStatsImage } = require('../services/imageService');
 const { sendPhoto } = require('../services/telegramService');
@@ -114,8 +113,13 @@ async function handleAddPlayer(chatId, args, apiKey, chatName) {
         return `❌ Player <b>${escapeHtml(args[0])}</b> not found on FACEIT.`;
     }
 
-    await storageService.addPlayer(chatId, { id: playerData.playerId, nickname: playerData.nickname }, chatName);
-    return `✅ Player <b>${escapeHtml(playerData.nickname)}</b> added to the list.`;
+    const { playerId, nickname } = playerData;
+    await storageService.addPlayer(chatId, { id: playerId, nickname }, chatName);
+    await storageService.subscribeChat(chatId, playerId, nickname);
+
+    console.log(`[ADD_PLAYER] Chat ${chatId} added and subscribed to "${nickname}" (${playerId})`);
+
+    return `✅ Player <b>${escapeHtml(nickname)}</b> added and subscribed to match notifications.`;
 }
 
 async function handleRemovePlayer(chatId, args) {
@@ -132,7 +136,9 @@ async function handleRemovePlayer(chatId, args) {
     }
 
     await storageService.removePlayer(chatId, player.id);
-    return `🗑️ Player <b>${escapeHtml(player.nickname)}</b> removed from the list.`;
+    await storageService.unsubscribeChat(chatId, player.id);
+
+    return `🗑️ Player <b>${escapeHtml(player.nickname)}</b> removed and unsubscribed from match notifications.`;
 }
 
 function handleHelp() {
@@ -143,28 +149,6 @@ function handleHelp() {
         return `• ${usage} — ${c.description}`;
     });
     return `🤖 <b>Команды бота:</b>\n\n` + lines.join('\n');
-}
-
-async function handleSubscribe(chatId, args, apiKey) {
-    if (args.length === 0) {
-        return forceReply('SUBSCRIBE');
-    }
-    return subscribePlayerToChat(chatId, args[0], apiKey);
-}
-
-async function handleUnsubscribe(chatId, args, apiKey) {
-    if (args.length === 0) {
-        return forceReply('UNSUBSCRIBE');
-    }
-    return unsubscribePlayerFromChat(chatId, args[0], apiKey);
-}
-
-async function handleMySubscriptions(chatId) {
-    const subscriptions = await storageService.getChatSubscriptions(chatId);
-    if (subscriptions.length === 0) {
-        return `📭 No active subscriptions. Use <code>${COMMANDS.SUBSCRIBE} &lt;nickname&gt;</code> to subscribe.`;
-    }
-    return `🔔 <b>Active subscriptions:</b>\n\n` + subscriptions.map(s => `• <code>${escapeHtml(s.nickname)}</code>`).join('\n');
 }
 
 async function handleLive(chatId) {
@@ -219,12 +203,6 @@ async function handleCommand(command, chatId, args, apiKey, chatName) {
             return handleRemovePlayer(chatId, args);
         case COMMANDS.PLAYERS:
             return handlePlayers(chatId);
-        case COMMANDS.SUBSCRIBE:
-            return handleSubscribe(chatId, args, apiKey);
-        case COMMANDS.UNSUBSCRIBE:
-            return handleUnsubscribe(chatId, args, apiKey);
-        case COMMANDS.MY_SUBSCRIPTIONS:
-            return handleMySubscriptions(chatId);
         case COMMANDS.LIVE:
             return handleLive(chatId);
         case COMMANDS.HELP:

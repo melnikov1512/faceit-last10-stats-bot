@@ -1,50 +1,8 @@
 const storageService = require('./storageService');
 const { sendMessage } = require('./telegramService');
-const { getPlayerIdByNickname, getMatchDetails } = require('./faceitService');
+const { getMatchDetails } = require('./faceitService');
 const { MATCH_URL_BASE } = require('../constants');
 const config = require('../config');
-
-/**
- * Subscribe a chat to match-start notifications for a player.
- * Resolves nickname → FACEIT playerId and stores in Firestore.
- * Logs the playerId so the admin can add the player to the FACEIT App Studio webhook subscription.
- * @param {string} chatId
- * @param {string} nickname
- * @param {string} apiKey
- * @returns {Promise<string>} Response message for the user
- */
-async function subscribePlayerToChat(chatId, nickname, apiKey) {
-    const playerData = await getPlayerIdByNickname(apiKey, nickname);
-    if (!playerData) {
-        return `❌ Player *${nickname}* not found on FACEIT.`;
-    }
-
-    const { playerId, nickname: resolvedNickname } = playerData;
-    await storageService.subscribeChat(chatId, playerId, resolvedNickname);
-
-    console.log(`[SUBSCRIPTION] Chat ${chatId} subscribed to player "${resolvedNickname}" (playerId: ${playerId}). Add this playerId to FACEIT App Studio webhook if not already present.`);
-
-    return `✅ Subscribed to *${resolvedNickname}*'s matches.\n\n⚙️ _Admin note: ensure player ID \`${playerId}\` is added to the FACEIT webhook subscription in App Studio._`;
-}
-
-/**
- * Unsubscribe a chat from match-start notifications for a player.
- * @param {string} chatId
- * @param {string} nickname
- * @param {string} apiKey
- * @returns {Promise<string>} Response message for the user
- */
-async function unsubscribePlayerFromChat(chatId, nickname, apiKey) {
-    const playerData = await getPlayerIdByNickname(apiKey, nickname);
-    if (!playerData) {
-        return `❌ Player *${nickname}* not found on FACEIT.`;
-    }
-
-    const { playerId, nickname: resolvedNickname } = playerData;
-    await storageService.unsubscribeChat(chatId, playerId);
-
-    return `🔕 Unsubscribed from *${resolvedNickname}*'s matches.`;
-}
 
 /**
  * Handle an incoming FACEIT match_object_created webhook event.
@@ -187,8 +145,4 @@ async function handleMatchEvent(payload) {
     }));
 }
 
-module.exports = {
-    subscribePlayerToChat,
-    unsubscribePlayerFromChat,
-    handleMatchEvent
-};
+module.exports = { handleMatchEvent };

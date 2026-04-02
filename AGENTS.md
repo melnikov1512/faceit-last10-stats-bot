@@ -58,7 +58,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
         - `player_subscriptions` — Document ID = `playerId` (FACEIT GUID). Structure: `{ playerId, nickname, subscribedChats: [chatIds] }`.
         - `sent_match_notifications` — Document ID = `{matchId}_{chatId}`. Fields: `matchId`, `chatId`, `sentAt`. Used for deduplication.
     - **Requirement**: Firestore database must be created in **Native Mode**.
-- **Subscription Module**: `src/services/subscriptionService.js`. Handles match-start event logic triggered by FACEIT webhooks. Queries subscriptions, deduplicates notifications, and dispatches Telegram messages.
+- **Subscription Module**: `src/services/subscriptionService.js`. Handles match-start event logic triggered by FACEIT webhooks. Queries subscriptions, deduplicates notifications, and dispatches Telegram messages. Subscription management (subscribe/unsubscribe) is handled automatically by `add_player`/`remove_player` commands via `storageService.subscribeChat` / `storageService.unsubscribeChat`.
     - **Supported Event**: `match_status_ready`.
     - **Web App Button**: If `WEBAPP_URL` env var is set, the match notification includes an inline `web_app` button that opens the Mini App for the chat.
     - **FACEIT Webhook Handler**: `src/handlers/faceitWebhookHandler.js` validates the `x-faceit-webhook-secret` header, responds `200` immediately, then processes the event asynchronously via `handleMatchEvent()`.
@@ -66,14 +66,11 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - **Command Logic**: `src/handlers/commandHandler.js`. Handles the following commands (all defined in `src/commands.js`). Handlers that send responses directly (e.g. `sendPhoto` for `/stats`) return `null`; `webhookHandler` sends `200` without a reply body in that case.
     | Command | Arguments | Purpose |
     |---|---|---|
-    | `/stats` | `[N]` (2–100, default 10) | Show stats table for tracked players |
-    | `/add_player` | `<nickname>` | Add player to tracking list |
-    | `/remove_player` | `<nickname>` | Remove player from tracking list |
+    | `/stats` | `[N]` (2–100, default 10) | Show stats image for tracked players |
+    | `/add_player` | `<nickname>` | Add player to tracking list and subscribe to match notifications |
+    | `/remove_player` | `<nickname>` | Remove player from tracking list and unsubscribe from notifications |
     | `/players` | — | List all tracked players |
     | `/help` | — | Show help message |
-    | `/subscribe` | `<nickname>` | Subscribe to match-start notifications |
-    | `/unsubscribe` | `<nickname>` | Unsubscribe from match-start notifications |
-    | `/my_subscriptions` | — | List active subscriptions for this chat |
     | `/live` | — | Открыть Mini App с активными матчами (требует `WEBAPP_URL`) |
 
 ## Developer Workflows
