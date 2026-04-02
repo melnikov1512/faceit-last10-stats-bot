@@ -8,6 +8,7 @@
  * Options:
  *   --port    <port>    Local server port (default: 8080)
  *   --secret  <secret>  FACEIT webhook secret (or set FACEIT_WEBHOOK_SECRET env var)
+ *   --matchId <id>      Use a specific match ID instead of fetching the player's latest
  *   --force             Skip subscription check — send notification directly to chatId via Telegram API
  *
  * Normal mode: POSTs a fake match_status_ready to http://localhost:<port>/webhook/faceit.
@@ -36,11 +37,12 @@ const CHAT_ID   = args.chatId;
 const PORT      = parseInt(args.port || '8080', 10);
 const SECRET    = args.secret || process.env.FACEIT_WEBHOOK_SECRET || '';
 const FORCE     = !!args.force;
+const MATCH_ID  = args.matchId || null;
 const API_KEY   = process.env.FACEIT_API_KEY;
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 if (!NICKNAME || !CHAT_ID) {
-    console.error('Usage: node scripts/test-notify.js --nickname <nick> --chatId <chatId> [--port 8080] [--secret <secret>] [--force]');
+    console.error('Usage: node scripts/test-notify.js --nickname <nick> --chatId <chatId> [--matchId <id>] [--port 8080] [--secret <secret>] [--force]');
     process.exit(1);
 }
 if (!API_KEY) {
@@ -130,12 +132,16 @@ async function sendTelegramMessage(chatId, text, replyMarkup) {
     const playerId = player.player_id;
     console.log(`✅ Found: ${player.nickname} (${playerId})`);
 
-    console.log('🔍 Fetching recent match history...');
-    const statsResp = await faceitGet(`/players/${playerId}/games/cs2/stats?limit=1`);
-    const recentMatchId = statsResp?.items?.[0]?.stats?.['Match Id'];
-    if (!recentMatchId) { console.error('❌ No recent matches found'); process.exit(1); }
-
-    console.log(`✅ Most recent match: ${recentMatchId}`);
+    let recentMatchId = MATCH_ID;
+    if (recentMatchId) {
+        console.log(`ℹ️  Using provided matchId: ${recentMatchId}`);
+    } else {
+        console.log('🔍 Fetching recent match history...');
+        const statsResp = await faceitGet(`/players/${playerId}/games/cs2/stats?limit=1`);
+        recentMatchId = statsResp?.items?.[0]?.stats?.['Match Id'];
+        if (!recentMatchId) { console.error('❌ No recent matches found'); process.exit(1); }
+        console.log(`✅ Most recent match: ${recentMatchId}`);
+    }
     console.log('🔍 Fetching match details...');
 
     const match = await faceitGet(`/matches/${recentMatchId}`);

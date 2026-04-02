@@ -195,9 +195,17 @@ async function getMatch(req, res) {
             const faction2Id = match.teams?.faction2?.faction_id;
             const stats = processMatchStats(rawStats, faction1Id, faction2Id);
             if (stats) {
-                // Propagate isTracked flag into stats players
+                // Build avatar lookup from the already-enriched roster
+                const avatarByPlayerId = new Map();
+                for (const faction of ['faction1', 'faction2']) {
+                    for (const p of formatted.teams[faction]?.roster || []) {
+                        if (p.avatar) avatarByPlayerId.set(p.player_id, p.avatar);
+                    }
+                }
+                // Propagate isTracked and avatar into stats players
                 for (const [pid, p] of Object.entries(stats.players)) {
                     p.isTracked = trackedPlayerIds.has(pid);
+                    if (avatarByPlayerId.has(pid)) p.avatar = avatarByPlayerId.get(pid);
                 }
                 formatted.matchStats = stats;
             }
