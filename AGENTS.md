@@ -8,13 +8,17 @@
 
 2. **Never commit automatically.** Do not run `git commit` (or any command that creates a commit) without explicit user instruction. Always show the proposed changes and wait for approval before committing.
 
-2. **Tool priority order.** When solving a task, prefer tools in this order:
+3. **Tool priority order.** When solving a task, prefer tools in this order:
    1. Built-in tools (grep, glob, view, edit, create, bash, sql, etc.)
    2. MCP servers (GitHub MCP, etc.)
    3. Ecosystem CLI tools (`npm`, `git`, `gcloud`, etc.)
    4. Custom scripts — use only as a last resort when built-in tools cannot accomplish the task.
 
-3. **Keep AGENTS.md up to date.** After making any changes to the codebase (new files, renamed files, changed architecture, new commands, new env vars, changed workflows, etc.) — update the relevant sections of this file before finishing the task.
+4. **Keep AGENTS.md up to date.** After making any changes to the codebase (new files, renamed files, changed architecture, new commands, new env vars, changed workflows, etc.) — update the relevant sections of this file before finishing the task.
+
+5. **Plan before implementing.** If the user message starts with `План`, `Спланируй`, `Подготовь план`, or a similar planning intent — prepare an implementation plan only. Do not write any code or make any changes until the user explicitly confirms (e.g. "поехали", "давай", "go", "start").
+
+6. **Answer without implementing.** If the user message starts with `Вопрос` — provide an answer or analysis only. Do not implement anything.
 
 ## Project Overview
 This is a Node.js Telegram bot designed to run as a **Google Cloud Function** (HTTP Trigger). It fetches **FACEIT Data API v4** statistics for **Counter-Strike 2 (CS2)** and communicates with Telegram via **Webhook Replies**.
@@ -36,7 +40,10 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     res.json(replyPayload);
     ```
 - **Stats Module**: `src/services/faceitService.js`. Calculates average stats (ADR, K/D, kills, ELO, ELO change) from the last N matches.
-- **Image Module**: `src/services/imageService.js`. Generates a FACEIT-styled PNG from leaderboard data using `@napi-rs/canvas`. Exports `generateStatsImage(leaderboard, matchesCount) → Promise<Buffer>`. Canvas size: 720 × (156 + N×74 + 46) px. Design: dark `#1F1F1F` background, `#FF5500` orange accent, white/gray text, green/red ±ELO colouring. Circular avatars loaded from FACEIT CDN with letter-placeholder fallback. **Fonts**: bundled Inter WOFF2 files in `src/assets/fonts/` registered via `GlobalFonts` at module load — ensures identical rendering on macOS and Linux (GCF/Cloud Run).
+- **Image Module**: `src/services/imageService.js`. Generates FACEIT-styled PNGs using `@napi-rs/canvas`. Exports:
+    - `generateStatsImage(leaderboard, matchesCount) → Promise<Buffer>` — stats leaderboard card (720px wide).
+    - `generateMatchImage(matchInfo) → Promise<Buffer>` — match notification card (640px wide). Shows team names, ELO, win probability pill, tracked player highlights with orange accent. `matchInfo`: `{ team1, team2, competition, region, bestOf }` where each team is `{ name, elo, winProb, trackedPlayers[] }`.
+    - **Fonts**: bundled Inter WOFF2 in `src/assets/fonts/` registered via `GlobalFonts` — identical rendering on macOS and Linux.
     - **Faceit API**: Uses v4 `/players?nickname={nick}&game=cs2`, `/players/{id}/games/cs2/stats?limit={N}`, and the unofficial ELO timeline endpoint `https://api.faceit.com/stats/v1/stats/time/users/{playerId}/games/cs2`. Match details fetched via `/matches/{matchId}` as fallback.
     - **ELO API Note**: The unofficial ELO timeline endpoint is fetched using Node.js native `fetch` (not axios) to bypass Cloudflare protection.
     - **Batching**: Processes player lookups in chunks of 10 to manage API rate limits. For each player, `getPlayerInfoById`, game stats, and ELO timeline are fetched in parallel (3 concurrent requests per player, no sequential nickname→id resolution needed).
@@ -62,7 +69,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **Supported Event**: `match_status_ready`.
     - **Web App Button**: If `WEBAPP_URL` env var is set, the match notification includes an inline `web_app` button that opens the Mini App for the chat.
     - **FACEIT Webhook Handler**: `src/handlers/faceitWebhookHandler.js` validates the `x-faceit-webhook-secret` header, responds `200` immediately, then processes the event asynchronously via `handleMatchEvent()`.
-- **Telegram Module**: `src/services/telegramService.js`. Sends messages to Telegram chats via Bot API (used for push notifications from FACEIT webhook events, not the webhook reply mechanism). Exports `sendMessage(chatId, text, replyMarkup?)` and `sendPhoto(chatId, imageBuffer, caption?)` (multipart/form-data upload).
+- **Telegram Module**: `src/services/telegramService.js`. Sends messages to Telegram chats via Bot API (used for push notifications from FACEIT webhook events, not the webhook reply mechanism). Exports `sendMessage(chatId, text, replyMarkup?)` and `sendPhoto(chatId, imageBuffer, caption?, replyMarkup?)` (multipart/form-data upload with optional inline keyboard).
 - **Command Logic**: `src/handlers/commandHandler.js`. Handles the following commands (all defined in `src/commands.js`). Handlers that send responses directly (e.g. `sendPhoto` for `/stats`) return `null`; `webhookHandler` sends `200` without a reply body in that case.
     | Command | Arguments | Purpose |
     |---|---|---|

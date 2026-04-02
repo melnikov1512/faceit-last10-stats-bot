@@ -1,7 +1,7 @@
 const storageService = require('./storageService');
-const { sendMessage } = require('./telegramService');
+const { sendPhoto } = require('./telegramService');
 const { getMatchDetails } = require('./faceitService');
-const { MATCH_URL_BASE } = require('../constants');
+const { generateMatchImage } = require('./imageService');
 const config = require('../config');
 
 /**
@@ -82,66 +82,41 @@ async function handleMatchEvent(payload) {
         await storageService.markNotificationSent(matchId, chatId, playerIds);
         await storageService.storeActiveMatch(chatId, matchId);
 
-        const playerList = nicknames.map(n => `*${n}*`).join(', ');
-        const verb = nicknames.length === 1 ? 'начал' : 'начали';
-
-        const metaParts = [
-            competitionName,
-            region,
-            bestOf ? `BO${bestOf}` : null,
-        ].filter(Boolean);
-
         const team1TrackedPlayers = nicknames.filter(n => faction1.roster?.some(p => p.nickname === n));
         const team2TrackedPlayers = nicknames.filter(n => faction2.roster?.some(p => p.nickname === n));
 
-        // 🟠 for team with tracked player (FACEIT orange), ⬛ for opponent
-        const team1HasTracked = team1TrackedPlayers.length > 0;
-        const team2HasTracked = team2TrackedPlayers.length > 0;
-
-        const formatTeamLine = (name, elo, winProb, trackedPlayers, hasTracked) => {
-            const teamEmoji = hasTracked ? '🟠' : '⬛';
-            const eloPart = elo ? `${elo} ELO` : null;
-            const winPart = winProb != null ? `${Math.round(winProb * 100)}%` : null;
-            const playerPart = trackedPlayers?.length > 0
-                ? `⭐ ${trackedPlayers.map(n => `*${n}*`).join(', ')}`
-                : null;
-            return [teamEmoji, `*${name}*`, [eloPart, winPart].filter(Boolean).join(' · '), playerPart]
-                .filter(Boolean).join('  ');
+        const matchInfo = {
+            team1: { name: team1Name, elo: team1Elo, winProb: team1WinProb, trackedPlayers: team1TrackedPlayers },
+            team2: { name: team2Name, elo: team2Elo, winProb: team2WinProb, trackedPlayers: team2TrackedPlayers },
+            competition: competitionName,
+            region,
+            bestOf,
         };
 
-        const lines = [
-            `⚡️ ${playerList} ${verb} матч!`,
-            ...(metaParts.length ? [`🏆 ${metaParts.join(' · ')}`] : []),
-            '',
-            formatTeamLine(team1Name, team1Elo, team1WinProb, team1TrackedPlayers, team1HasTracked),
-            formatTeamLine(team2Name, team2Elo, team2WinProb, team2TrackedPlayers, team2HasTracked),
-            '',
-            `🎮 [Открыть матч](${MATCH_URL_BASE}/${matchId})`,
-        ];
-        const text = lines.join('\n');
+        const imageBuffer = await generateMatchImage(matchInfo);
+
+        // Caption: bold nicknames, no icons, HTML parse mode
+        const boldNames = nicknames.map(n => `<b>${n}</b>`);
+        const verb      = nicknames.length === 1 ? 'начал матч' : 'начали матч';
+        const caption   = boldNames.join(' и ') + ' ' + verb;
 
         // Build inline keyboard: Mini App button (web_app for private, t.me link for groups)
         const inlineButtons = [];
         if (config.webapp_url) {
             const isGroup = Number(chatId) < 0;
             if (isGroup && config.bot_username) {
-                // Groups don't support web_app inline buttons — use t.me direct link
-                // Encode chatId and matchId in startapp: "chatId_matchId"
                 const startapp = encodeURIComponent(`${chatId}_${matchId}`);
                 const directLink = `https://t.me/${config.bot_username}?startapp=${startapp}&mode=compact`;
                 inlineButtons.push({ text: '📊 Составы и счёт', url: directLink });
             } else if (!isGroup) {
-                // Private chats support web_app inline buttons
                 const webAppUrl = `${config.webapp_url}?chatId=${chatId}&matchId=${matchId}`;
                 inlineButtons.push({ text: '📊 Составы и счёт', web_app: { url: webAppUrl } });
             }
         }
-        const replyMarkup = inlineButtons.length
-            ? { inline_keyboard: [inlineButtons] }
-            : null;
+        const replyMarkup = inlineButtons.length ? { inline_keyboard: [inlineButtons] } : null;
 
-        await sendMessage(chatId, text, replyMarkup);
-        console.log(`[FACEIT WEBHOOK] Sent match ${matchId} notification to chat ${chatId} for players: ${nicknames.join(', ')}`);
+        await sendPhoto(chatId, imageBuffer, caption, replyMarkup);
+        console.log(`[FACEIT WEBHOOK] Sent match ${matchId} image notification to chat ${chatId} for players: ${nicknames.join(', ')}`);
     }));
 }
 

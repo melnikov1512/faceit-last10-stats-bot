@@ -233,4 +233,172 @@ async function generateStatsImage(leaderboard, matchesCount) {
     return canvas.toBuffer('image/png');
 }
 
-module.exports = { generateStatsImage };
+// ── Match notification image ──────────────────────────────────────────────────
+
+const MATCH = {
+    WIDTH:        580,
+    PADDING:      24,
+    ACCENT_H:     4,
+    HEADER_H:     72,   // title + meta, tight
+    TEAM_H:       64,   // one team row
+    DIVIDER_H:    1,
+    FOOTER_H:     34,
+    BADGE_R:      5,
+};
+
+/**
+ * Draws a rounded rectangle path (no fill/stroke — caller decides).
+ */
+function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+}
+
+/**
+ * Draws one team row: name (left), ELO + win% pill (right).
+ * Tracked team gets orange left accent + brighter name.
+ */
+function drawTeamBlock(ctx, team, y) {
+    const { WIDTH: W, PADDING: P, TEAM_H, BADGE_R } = MATCH;
+    const hasTracked = team.trackedPlayers.length > 0;
+
+    ctx.fillStyle = hasTracked ? '#272727' : COLOR.bg;
+    ctx.fillRect(0, y, W, TEAM_H);
+
+    if (hasTracked) {
+        ctx.fillStyle = COLOR.accent;
+        ctx.fillRect(0, y, 3, TEAM_H);
+    }
+
+    ctx.fillStyle = COLOR.separator;
+    ctx.fillRect(0, y + TEAM_H - 1, W, 1);
+
+    const textY = y + TEAM_H / 2 + 7;
+
+    // Team name — if tracked players present, shift up to make room for second line
+    const nameY = hasTracked ? y + TEAM_H / 2 - 4 : textY;
+
+    ctx.fillStyle = hasTracked ? COLOR.text : COLOR.subtext;
+    ctx.font      = `bold 20px ${FONT_FAMILY}`;
+    ctx.textAlign = 'left';
+    ctx.fillText(truncateText(ctx, team.name, W - P * 2 - 100), P + 8, nameY);
+
+    // Tracked player nicknames (second line, orange)
+    if (hasTracked) {
+        ctx.fillStyle = COLOR.accent;
+        ctx.font      = `13px ${FONT_FAMILY}`;
+        ctx.fillText(team.trackedPlayers.join('  ·  '), P + 8, nameY + 20);
+    }
+
+    // Right side: ELO and win% pill
+    let rightX = W - P;
+
+    if (team.winProb != null) {
+        const pct      = Math.round(team.winProb * 100);
+        const label    = `${pct}%`;
+        ctx.font       = `bold 17px ${FONT_FAMILY}`;
+        const pillW    = ctx.measureText(label).width + 18;
+        const pillH    = 26;
+        const pillX    = rightX - pillW;
+        const pillY    = y + TEAM_H / 2 - pillH / 2;
+        const pillColor = hasTracked ? COLOR.accent : '#353535';
+
+        roundRect(ctx, pillX, pillY, pillW, pillH, BADGE_R);
+        ctx.fillStyle = pillColor;
+        ctx.fill();
+        ctx.fillStyle = hasTracked ? COLOR.text : COLOR.subtext;
+        ctx.textAlign = 'center';
+        ctx.fillText(label, pillX + pillW / 2, pillY + 17);
+
+        rightX = pillX - 10;
+    }
+
+    if (team.elo != null) {
+        ctx.fillStyle = COLOR.subtext;
+        ctx.font      = `bold 18px ${FONT_FAMILY}`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`${team.elo} ELO`, rightX, textY);
+    }
+}
+
+/**
+ * Generates a match notification image.
+ * @param {{
+ *   team1: { name: string, elo: number|null, winProb: number|null, trackedPlayers: string[] },
+ *   team2: { name: string, elo: number|null, winProb: number|null, trackedPlayers: string[] },
+ *   competition: string|null,
+ *   region: string|null,
+ *   bestOf: number|null,
+ * }} matchInfo
+ * @returns {Promise<Buffer>}
+ */
+async function generateMatchImage(matchInfo) {
+    const { team1, team2, competition, region, bestOf } = matchInfo;
+    const { WIDTH: W, PADDING: P, ACCENT_H, HEADER_H, TEAM_H, DIVIDER_H, FOOTER_H } = MATCH;
+    const HEIGHT = ACCENT_H + HEADER_H + TEAM_H + DIVIDER_H + TEAM_H + FOOTER_H;
+
+    const canvas = createCanvas(W, HEIGHT);
+    const ctx    = canvas.getContext('2d');
+
+    ctx.fillStyle = COLOR.bg;
+    ctx.fillRect(0, 0, W, HEIGHT);
+
+    // ── Header ────────────────────────────────────────────────────────────────
+    ctx.fillStyle = COLOR.headerBg;
+    ctx.fillRect(0, 0, W, ACCENT_H + HEADER_H);
+
+    ctx.fillStyle = COLOR.accent;
+    ctx.fillRect(0, 0, W, ACCENT_H);
+
+    // Title
+    ctx.fillStyle = COLOR.text;
+    ctx.font      = `bold 24px ${FONT_FAMILY}`;
+    ctx.textAlign = 'left';
+    ctx.fillText('MATCH FOUND', P, ACCENT_H + 36);
+
+    // Meta
+    const metaParts = [competition, region, bestOf ? `BO${bestOf}` : null].filter(Boolean);
+    ctx.fillStyle = COLOR.subtext;
+    ctx.font      = `15px ${FONT_FAMILY}`;
+    ctx.fillText(metaParts.length ? metaParts.join('  ·  ') : 'CS2', P, ACCENT_H + 60);
+
+    // VS
+    ctx.fillStyle = COLOR.accent;
+    ctx.font      = `bold 26px ${FONT_FAMILY}`;
+    ctx.textAlign = 'right';
+    ctx.fillText('VS', W - P, ACCENT_H + 50);
+
+    ctx.fillStyle = COLOR.separator;
+    ctx.fillRect(0, ACCENT_H + HEADER_H - 1, W, 1);
+
+    // ── Teams ─────────────────────────────────────────────────────────────────
+    const teamsY = ACCENT_H + HEADER_H;
+    drawTeamBlock(ctx, team1, teamsY);
+
+    ctx.fillStyle = COLOR.separator;
+    ctx.fillRect(0, teamsY + TEAM_H, W, DIVIDER_H);
+
+    drawTeamBlock(ctx, team2, teamsY + TEAM_H + DIVIDER_H);
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+    const footerY = HEIGHT - FOOTER_H;
+    ctx.fillStyle = COLOR.headerBg;
+    ctx.fillRect(0, footerY, W, FOOTER_H);
+    ctx.fillStyle = COLOR.subtext;
+    ctx.font      = `13px ${FONT_FAMILY}`;
+    ctx.textAlign = 'right';
+    ctx.fillText('FACEIT Stats Bot', W - P, footerY + FOOTER_H / 2 + 4);
+
+    return canvas.toBuffer('image/png');
+}
+
+module.exports = { generateStatsImage, generateMatchImage };

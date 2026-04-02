@@ -62,7 +62,7 @@ async function sendMessage(chatId, text, replyMarkup = null) {
     }
 }
 
-async function sendPhoto(chatId, imageBuffer, caption = null) {
+async function sendPhoto(chatId, imageBuffer, caption = null, replyMarkup = null) {
     const token = config.telegram_bot_token;
     if (!token) {
         console.error('TELEGRAM_BOT_TOKEN is not configured');
@@ -76,6 +76,9 @@ async function sendPhoto(chatId, imageBuffer, caption = null) {
         if (caption) {
             form.append('caption', caption);
             form.append('parse_mode', 'HTML');
+        }
+        if (replyMarkup) {
+            form.append('reply_markup', JSON.stringify(replyMarkup));
         }
 
         await axios.post(

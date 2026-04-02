@@ -101,24 +101,33 @@ async function postWebhook(payload) {
     });
 }
 
-// ── Send Telegram message directly (--force mode) ─────────────────────────────
-async function sendTelegramMessage(chatId, text, replyMarkup) {
-    const bodyObj = { chat_id: chatId, text, parse_mode: 'Markdown' };
-    if (replyMarkup) bodyObj.reply_markup = replyMarkup;
-    const body = JSON.stringify(bodyObj);
+// ── Send Telegram photo directly (--force mode) ───────────────────────────────
+async function sendTelegramPhoto(chatId, imageBuffer, replyMarkup, caption) {
+    const FormData = require('form-data');
+    const form = new FormData();
+    form.append('chat_id', String(chatId));
+    form.append('photo', imageBuffer, { filename: 'match.png', contentType: 'image/png' });
+    if (caption) {
+        form.append('caption', caption);
+        form.append('parse_mode', 'HTML');
+    }
+    if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
+
     return new Promise((resolve, reject) => {
+        const formHeaders = form.getHeaders();
+        const formBuffer  = form.getBuffer();
         const req = https.request({
             hostname: 'api.telegram.org',
-            path: `/bot${BOT_TOKEN}/sendMessage`,
+            path: `/bot${BOT_TOKEN}/sendPhoto`,
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+            headers: { ...formHeaders, 'Content-Length': formBuffer.length },
         }, (res) => {
             let data = '';
             res.on('data', (c) => data += c);
             res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
         });
         req.on('error', reject);
-        req.write(body);
+        req.write(formBuffer);
         req.end();
     });
 }
@@ -155,23 +164,40 @@ async function sendTelegramMessage(chatId, text, replyMarkup) {
     const webAppUrl = `http://localhost:${PORT}/app?matchId=${recentMatchId}&chatId=${CHAT_ID}`;
 
     if (FORCE) {
-        // ── Force mode: send Telegram message directly ───────────────────────
-        console.log(`\n📤 --force: sending notification directly to chat ${CHAT_ID} via Telegram API...`);
+        // ── Force mode: send match image directly via Telegram API ───────────
+        console.log(`\n📤 --force: sending match image to chat ${CHAT_ID} via Telegram API...`);
 
-        const f1Elo = f1?.stats?.rating ? `${f1.stats.rating} ELO` : '';
-        const f2Elo = f2?.stats?.rating ? `${f2.stats.rating} ELO` : '';
-        const meta  = [match.competition_name, match.region, match.best_of ? `BO${match.best_of}` : null]
-            .filter(Boolean).join(' · ');
+        const { generateMatchImage } = require('../src/services/imageService');
 
-        const text = [
-            `⚡️ *${NICKNAME}* начал матч! _(test)_`,
-            meta ? `🏆 ${meta}` : null,
-            '',
-            `🟠 *${f1?.name || 'Faction 1'}*  ${f1Elo}`,
-            `⬛ *${f2?.name || 'Faction 2'}*  ${f2Elo}`,
-            '',
-            `🎮 [Открыть матч](https://www.faceit.com/en/cs2/room/${recentMatchId})`,
-        ].filter(s => s !== null).join('\n');
+        const team1TrackedPlayers = f1?.roster
+            ?.filter(p => p.nickname?.toLowerCase() === NICKNAME.toLowerCase())
+            .map(p => p.nickname) ?? [];
+        const team2TrackedPlayers = f2?.roster
+            ?.filter(p => p.nickname?.toLowerCase() === NICKNAME.toLowerCase())
+            .map(p => p.nickname) ?? [];
+
+        const matchInfo = {
+            team1: {
+                name:           f1?.name || 'Faction 1',
+                elo:            f1?.stats?.rating ?? null,
+                winProb:        f1?.stats?.winProbability ?? null,
+                trackedPlayers: team1TrackedPlayers,
+            },
+            team2: {
+                name:           f2?.name || 'Faction 2',
+                elo:            f2?.stats?.rating ?? null,
+                winProb:        f2?.stats?.winProbability ?? null,
+                trackedPlayers: team2TrackedPlayers,
+            },
+            competition: match.competition_name ?? null,
+            region:      match.region ?? null,
+            bestOf:      match.best_of ?? null,
+        };
+
+        const imageBuffer = await generateMatchImage(matchInfo);
+
+        const boldNames = [NICKNAME].map(n => `<b>${n}</b>`);
+        const caption   = boldNames.join(' и ') + ' начал матч';
 
         // Build inline keyboard — mirrors logic from subscriptionService.js
         let replyMarkup = null;
@@ -187,12 +213,12 @@ async function sendTelegramMessage(chatId, text, replyMarkup) {
             if (button) replyMarkup = { inline_keyboard: [[button]] };
         }
         if (!replyMarkup) {
-            console.log('   ℹ️  No WEBAPP_URL set — button omitted. Set WEBAPP_URL (and BOT_USERNAME for groups) in .env to include it.');
+            console.log('   ℹ️  No WEBAPP_URL set — button omitted.');
         }
 
-        const result = await sendTelegramMessage(CHAT_ID, text, replyMarkup);
+        const result = await sendTelegramPhoto(CHAT_ID, imageBuffer, replyMarkup, caption);
         if (result.ok) {
-            console.log(`✅ Message sent to chat ${CHAT_ID}`);
+            console.log(`✅ Match image sent to chat ${CHAT_ID}`);
         } else {
             console.error(`❌ Telegram error: ${result.description}`);
         }
