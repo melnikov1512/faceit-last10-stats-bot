@@ -258,6 +258,46 @@ async function getPlayerIdByNickname(apiKey, nickname) {
 }
 
 /**
+ * Get enriched player details (avatar, ELO, skill level) by player ID.
+ * @param {string} apiKey
+ * @param {string} playerId
+ * @returns {Promise<{playerId, nickname, avatar, elo, skillLevel}|null>}
+ */
+async function getPlayerDetails(apiKey, playerId) {
+    if (!apiKey || !playerId) return null;
+    const apiClient = getApiClient(apiKey);
+    const info = await getPlayerInfoById(apiClient, playerId);
+    if (!info) return null;
+    return {
+        playerId:   info.player_id,
+        nickname:   info.nickname,
+        avatar:     info.avatar || null,
+        elo:        info.games?.cs2?.faceit_elo ?? null,
+        skillLevel: info.games?.cs2?.skill_level ?? null,
+    };
+}
+
+/**
+ * Get enriched player details by nickname (single API call).
+ * @param {string} apiKey
+ * @param {string} nickname
+ * @returns {Promise<{playerId, nickname, avatar, elo, skillLevel}|null>}
+ */
+async function getPlayerDetailsByNickname(apiKey, nickname) {
+    if (!apiKey) return null;
+    const apiClient = getApiClient(apiKey);
+    const info = await getPlayerInfo(apiClient, nickname);
+    if (!info) return null;
+    return {
+        playerId:   info.player_id,
+        nickname:   info.nickname,
+        avatar:     info.avatar || null,
+        elo:        info.games?.cs2?.faceit_elo ?? null,
+        skillLevel: info.games?.cs2?.skill_level ?? null,
+    };
+}
+
+/**
  * Fetch match details by match ID from FACEIT Data API v4.
  * Used to retrieve roster when webhook payload lacks team data.
  * @param {string} apiKey
@@ -341,6 +381,8 @@ async function enrichMatchWithRosterElos(apiKey, match) {
 module.exports = {
     getLeaderboardStats,
     getPlayerIdByNickname,
+    getPlayerDetails,
+    getPlayerDetailsByNickname,
     getMatchDetails,
     getMatchStats,
     enrichMatchWithRosterElos,

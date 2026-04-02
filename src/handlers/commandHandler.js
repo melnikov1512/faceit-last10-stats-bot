@@ -1,11 +1,11 @@
-const { getLeaderboardStats, getPlayerIdByNickname } = require('../services/faceitService');
+const { getLeaderboardStats, getPlayerDetailsByNickname, getPlayerDetails } = require('../services/faceitService');
 const { collectMatchIds, fetchActiveMatchDetails } = require('../services/matchService');
 const { MATCH_STATUS_LABELS } = require('../constants');
 const { escapeHtml } = require('../utils');
 const config = require('../config');
 const storageService = require('../services/storageService');
 const { COMMANDS, COMMAND_LIST } = require('../commands');
-const { generateStatsImage } = require('../services/imageService');
+const { generateStatsImage, generatePlayerCard, generatePlayersListImage } = require('../services/imageService');
 const { sendPhoto } = require('../services/telegramService');
 
 function forceReply(commandKey) {
@@ -95,12 +95,25 @@ async function handleStats(chatId, args, apiKey) {
     return null;
 }
 
-async function handlePlayers(chatId) {
+async function handlePlayers(chatId, apiKey) {
     const players = await storageService.getPlayers(chatId);
     if (players.length === 0) {
         return `⚠️ No players tracked in this chat. Use <code>${COMMANDS.ADD_PLAYER} &lt;nickname&gt;</code> to start.`;
     }
-    return `📋 <b>Tracked Players:</b>\n\n` + players.map(p => `• <code>${escapeHtml(p.nickname)}</code>`).join('\n');
+
+    const details = await Promise.all(
+        players.map(p => getPlayerDetails(apiKey, p.id).catch(() => ({
+            playerId: p.id, nickname: p.nickname, avatar: null, elo: null, skillLevel: null,
+        })))
+    );
+
+    const imageBuffer = await generatePlayersListImage(details);
+    const lines = details.map((p, i) =>
+        `${i + 1}. <b>${escapeHtml(p.nickname ?? '—')}</b>${p.elo != null ? ` — ${p.elo} ELO` : ''}`
+    );
+    const caption = `<b>Отслеживаемые игроки:</b>\n${lines.join('\n')}`;
+    await sendPhoto(chatId, imageBuffer, caption);
+    return null;
 }
 
 async function handleAddPlayer(chatId, args, apiKey, chatName) {
@@ -108,21 +121,23 @@ async function handleAddPlayer(chatId, args, apiKey, chatName) {
         return forceReply('ADD_PLAYER');
     }
 
-    const playerData = await getPlayerIdByNickname(apiKey, args[0]);
-    if (!playerData) {
+    const player = await getPlayerDetailsByNickname(apiKey, args[0]);
+    if (!player) {
         return `❌ Player <b>${escapeHtml(args[0])}</b> not found on FACEIT.`;
     }
 
-    const { playerId, nickname } = playerData;
-    await storageService.addPlayer(chatId, { id: playerId, nickname }, chatName);
-    await storageService.subscribeChat(chatId, playerId, nickname);
+    await storageService.addPlayer(chatId, { id: player.playerId, nickname: player.nickname }, chatName);
+    await storageService.subscribeChat(chatId, player.playerId, player.nickname);
 
-    console.log(`[ADD_PLAYER] Chat ${chatId} added and subscribed to "${nickname}" (${playerId})`);
+    console.log(`[ADD_PLAYER] Chat ${chatId} added and subscribed to "${player.nickname}" (${player.playerId})`);
 
-    return `✅ Player <b>${escapeHtml(nickname)}</b> added and subscribed to match notifications.`;
+    const imageBuffer = await generatePlayerCard(player, 'added');
+    const caption = `Игрок <b>${escapeHtml(player.nickname)}</b> добавлен в список отслеживания.`;
+    await sendPhoto(chatId, imageBuffer, caption);
+    return null;
 }
 
-async function handleRemovePlayer(chatId, args) {
+async function handleRemovePlayer(chatId, args, apiKey) {
     if (args.length === 0) {
         return forceReply('REMOVE_PLAYER');
     }
@@ -138,7 +153,14 @@ async function handleRemovePlayer(chatId, args) {
     await storageService.removePlayer(chatId, player.id);
     await storageService.unsubscribeChat(chatId, player.id);
 
-    return `🗑️ Player <b>${escapeHtml(player.nickname)}</b> removed and unsubscribed from match notifications.`;
+    const details = await getPlayerDetails(apiKey, player.id).catch(() => ({
+        playerId: player.id, nickname: player.nickname, avatar: null, elo: null, skillLevel: null,
+    }));
+
+    const imageBuffer = await generatePlayerCard(details, 'removed');
+    const caption = `Игрок <b>${escapeHtml(details.nickname ?? args[0])}</b> удалён из списка отслеживания.`;
+    await sendPhoto(chatId, imageBuffer, caption);
+    return null;
 }
 
 function handleHelp() {
@@ -200,9 +222,9 @@ async function handleCommand(command, chatId, args, apiKey, chatName) {
         case COMMANDS.ADD_PLAYER:
             return handleAddPlayer(chatId, args, apiKey, chatName);
         case COMMANDS.REMOVE_PLAYER:
-            return handleRemovePlayer(chatId, args);
+            return handleRemovePlayer(chatId, args, apiKey);
         case COMMANDS.PLAYERS:
-            return handlePlayers(chatId);
+            return handlePlayers(chatId, apiKey);
         case COMMANDS.LIVE:
             return handleLive(chatId);
         case COMMANDS.HELP:

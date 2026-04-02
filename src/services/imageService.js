@@ -401,4 +401,256 @@ async function generateMatchImage(matchInfo) {
     return canvas.toBuffer('image/png');
 }
 
-module.exports = { generateStatsImage, generateMatchImage };
+// ── FACEIT skill level colours ────────────────────────────────────────────────
+// Accurate level colours matching the FACEIT reference design
+const SKILL_COLOR = {
+    1:  '#6B6B6B',
+    2:  '#5B8A5B',
+    3:  '#1CE400',
+    4:  '#C8D800',
+    5:  '#FFD800',
+    6:  '#FFD800',
+    7:  '#FF9000',
+    8:  '#FF6500',
+    9:  '#FF3D00',
+    10: '#FF1744',
+};
+
+const DEG = Math.PI / 180;
+
+function skillColor(level) {
+    return SKILL_COLOR[level] ?? COLOR.subtext;
+}
+
+/**
+ * Draws a FACEIT-style skill badge:
+ * dark circle + coloured arc (gap at bottom) + coloured level number inside.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number|null} level  1-10
+ * @param {number} cx   centre X
+ * @param {number} cy   centre Y
+ * @param {number} r    outer radius of the badge circle
+ */
+function drawSkillBadge(ctx, level, cx, cy, r) {
+    const color   = skillColor(level);
+    const lineW   = Math.max(2.5, r * 0.17);
+    const arcR    = r - lineW / 2;
+
+    ctx.save();
+
+    // Dark background circle
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#1A1A1A';
+    ctx.fill();
+
+    // Coloured arc — gap at bottom centre (60°→120°, clockwise = 300° arc)
+    ctx.beginPath();
+    ctx.arc(cx, cy, arcR, 120 * DEG, 60 * DEG, false);
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = lineW;
+    ctx.lineCap     = 'round';
+    ctx.stroke();
+
+    // Level number
+    ctx.fillStyle    = color;
+    ctx.font         = `bold ${Math.round(r * 0.82)}px ${FONT_FAMILY}`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(level != null ? String(level) : '?', cx, cy);
+
+    ctx.restore();
+}
+
+// ── Player card (for add/remove responses) ────────────────────────────────────
+
+const CARD = {
+    WIDTH:    500,
+    PADDING:  24,
+    ACCENT_H: 4,
+    HEIGHT:   116,
+    AVATAR_R: 38,
+    BADGE_R:  22,   // standalone skill badge radius
+};
+
+/**
+ * Generates a player info card (add/remove confirmation).
+ * Layout: [avatar] [badge] [nickname / ELO]   action label top-right
+ * @param {{ nickname, avatar, elo, skillLevel }} player
+ * @param {'added'|'removed'} action
+ * @returns {Promise<Buffer>}
+ */
+async function generatePlayerCard(player, action) {
+    const { WIDTH: W, PADDING: P, ACCENT_H, HEIGHT, AVATAR_R, BADGE_R } = CARD;
+
+    let avatar = null;
+    if (player.avatar) {
+        try { avatar = await loadImage(player.avatar); } catch { /* fallback */ }
+    }
+
+    const canvas = createCanvas(W, HEIGHT);
+    const ctx    = canvas.getContext('2d');
+
+    ctx.fillStyle = COLOR.headerBg;
+    ctx.fillRect(0, 0, W, HEIGHT);
+
+    ctx.fillStyle = COLOR.accent;
+    ctx.fillRect(0, 0, W, ACCENT_H);
+
+    const midY    = HEIGHT / 2 + ACCENT_H / 2;
+    const avatarCx = P + AVATAR_R;
+
+    // Avatar
+    if (avatar) {
+        drawCircularAvatar(ctx, avatar, avatarCx, midY, AVATAR_R);
+    } else {
+        drawAvatarPlaceholder(ctx, player.nickname?.[0], avatarCx, midY, AVATAR_R);
+    }
+
+    // Standalone skill badge (right of avatar, same vertical centre)
+    const badgeCx = avatarCx + AVATAR_R + 14 + BADGE_R;
+    drawSkillBadge(ctx, player.skillLevel, badgeCx, midY, BADGE_R);
+
+    // Text block (right of badge)
+    const textX = badgeCx + BADGE_R + 16;
+
+    ctx.fillStyle    = COLOR.text;
+    ctx.font         = `bold 24px ${FONT_FAMILY}`;
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(player.nickname ?? '—', textX, midY - 4);
+
+    ctx.fillStyle = COLOR.text;
+    ctx.font      = `bold 20px ${FONT_FAMILY}`;
+    ctx.fillText(player.elo != null ? `${player.elo} ELO` : '—', textX, midY + 22);
+
+    // Action label (top-right)
+    const actionLabel = action === 'added' ? 'Player added' : 'Player removed';
+    const actionColor = action === 'added' ? COLOR.positive : COLOR.negative;
+    ctx.fillStyle    = actionColor;
+    ctx.font         = `bold 13px ${FONT_FAMILY}`;
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(actionLabel, W - P, ACCENT_H + 18);
+
+    return canvas.toBuffer('image/png');
+}
+
+// ── Players list image (for /players) ─────────────────────────────────────────
+
+const PLIST = {
+    WIDTH:    540,
+    PADDING:  28,
+    ACCENT_H: 4,
+    HEADER_H: 52,
+    ROW_H:    68,
+    FOOTER_H: 32,
+    AVATAR_R: 24,
+    BADGE_R:  16,  // standalone badge next to avatar
+};
+
+/**
+ * Generates a players list image.
+ * @param {Array<{ playerId, nickname, avatar, elo, skillLevel }>} players
+ * @returns {Promise<Buffer>}
+ */
+async function generatePlayersListImage(players) {
+    const { WIDTH: W, PADDING: P, ACCENT_H, HEADER_H, ROW_H, FOOTER_H, AVATAR_R, BADGE_R } = PLIST;
+    const HEIGHT = ACCENT_H + HEADER_H + players.length * ROW_H + FOOTER_H;
+
+    const avatars = await Promise.all(players.map(async ({ avatar }) => {
+        if (!avatar) return null;
+        try { return await loadImage(avatar); } catch { return null; }
+    }));
+
+    const canvas = createCanvas(W, HEIGHT);
+    const ctx    = canvas.getContext('2d');
+
+    ctx.fillStyle = COLOR.bg;
+    ctx.fillRect(0, 0, W, HEIGHT);
+
+    // ── Header ────────────────────────────────────────────────────────────────
+    ctx.fillStyle = COLOR.headerBg;
+    ctx.fillRect(0, 0, W, ACCENT_H + HEADER_H);
+
+    ctx.fillStyle = COLOR.accent;
+    ctx.fillRect(0, 0, W, ACCENT_H);
+
+    ctx.fillStyle    = COLOR.text;
+    ctx.font         = `bold 22px ${FONT_FAMILY}`;
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('TRACKED PLAYERS', P, ACCENT_H + 34);
+
+    ctx.fillStyle = COLOR.subtext;
+    ctx.font      = `14px ${FONT_FAMILY}`;
+    ctx.textAlign = 'right';
+    ctx.fillText(`${players.length} player${players.length !== 1 ? 's' : ''}`, W - P, ACCENT_H + 34);
+
+    ctx.fillStyle = COLOR.separator;
+    ctx.fillRect(0, ACCENT_H + HEADER_H - 1, W, 1);
+
+    // ── Rows ──────────────────────────────────────────────────────────────────
+    players.forEach((player, i) => {
+        const rowY  = ACCENT_H + HEADER_H + i * ROW_H;
+        const midY  = rowY + ROW_H / 2;
+        const textY = midY + 6;
+
+        ctx.fillStyle = i % 2 === 0 ? COLOR.bg : COLOR.rowAlt;
+        ctx.fillRect(0, rowY, W, ROW_H);
+
+        ctx.fillStyle = COLOR.separator;
+        ctx.fillRect(0, rowY + ROW_H - 1, W, 1);
+
+        // Rank
+        ctx.fillStyle    = i === 0 ? COLOR.accent : COLOR.subtext;
+        ctx.font         = `bold 14px ${FONT_FAMILY}`;
+        ctx.textAlign    = 'right';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText(String(i + 1), P - 8, textY);
+
+        // Avatar
+        const avatarCx = P + AVATAR_R;
+        if (avatars[i]) {
+            drawCircularAvatar(ctx, avatars[i], avatarCx, midY, AVATAR_R);
+        } else {
+            drawAvatarPlaceholder(ctx, player.nickname?.[0], avatarCx, midY, AVATAR_R);
+        }
+
+        // Skill badge (standalone, right of avatar)
+        const badgeCx = avatarCx + AVATAR_R + 10 + BADGE_R;
+        drawSkillBadge(ctx, player.skillLevel, badgeCx, midY, BADGE_R);
+
+        // Nickname
+        const nameX = badgeCx + BADGE_R + 14;
+        ctx.fillStyle    = COLOR.text;
+        ctx.font         = `bold 18px ${FONT_FAMILY}`;
+        ctx.textAlign    = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText(truncateText(ctx, player.nickname, W - nameX - P - 90), nameX, textY);
+
+        // ELO (right, white + bold)
+        ctx.fillStyle = COLOR.text;
+        ctx.font      = `bold 18px ${FONT_FAMILY}`;
+        ctx.textAlign = 'right';
+        ctx.fillText(player.elo != null ? `${player.elo}` : '—', W - P, midY - 4);
+
+        ctx.fillStyle = COLOR.subtext;
+        ctx.font      = `13px ${FONT_FAMILY}`;
+        ctx.fillText('ELO', W - P, midY + 14);
+    });
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+    const footerY = HEIGHT - FOOTER_H;
+    ctx.fillStyle = COLOR.headerBg;
+    ctx.fillRect(0, footerY, W, FOOTER_H);
+    ctx.fillStyle    = COLOR.subtext;
+    ctx.font         = `12px ${FONT_FAMILY}`;
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('FACEIT Stats Bot', W - P, footerY + FOOTER_H / 2 + 4);
+
+    return canvas.toBuffer('image/png');
+}
+
+module.exports = { generateStatsImage, generateMatchImage, generatePlayerCard, generatePlayersListImage };
