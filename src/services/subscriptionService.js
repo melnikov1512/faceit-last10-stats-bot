@@ -269,3 +269,5 @@ async function handleMatchFinishedEvent(payload) {
     }));
 }
 
+
+module.exports = { handleMatchEvent, handleMatchFinishedEvent };
