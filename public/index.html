@@ -407,7 +407,101 @@
             flex-shrink: 0;
         }
 
-        /* ── Content overlay on refresh ── */
+        /* ── Match stats table (finished matches) ── */
+        .maps-breakdown {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 10px 17px 0;
+        }
+
+        .map-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            color: var(--text-sub);
+            gap: 8px;
+        }
+
+        .map-row-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .map-row-score {
+            font-weight: 700;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .map-row-score .w { color: var(--green); }
+        .map-row-score .l { color: var(--text-sub); }
+
+        .stats-section {
+            padding: 0 14px 14px;
+        }
+
+        .stats-team-block {
+            margin-top: 14px;
+        }
+
+        .stats-team-title {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            color: var(--text-sub);
+            padding: 0 3px;
+            margin-bottom: 6px;
+        }
+
+        .stats-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .stats-table th {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-sub);
+            text-align: right;
+            padding: 0 3px 6px;
+            border-bottom: 1px solid var(--divider);
+            white-space: nowrap;
+        }
+
+        .stats-table th:first-child { text-align: left; padding-left: 0; }
+
+        .stats-table td {
+            padding: 7px 3px;
+            text-align: right;
+            border-bottom: 1px solid var(--divider);
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .stats-table td:first-child {
+            text-align: left;
+            padding-left: 0;
+            font-weight: 600;
+            max-width: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .stats-table tr:last-child td { border-bottom: none; }
+
+        .stats-table tr.tracked td:first-child { color: var(--orange); }
+
+        .stats-kd-good { color: var(--green); }
+        .stats-kd-bad  { color: var(--red); }
+
+        
         .content-area { position: relative; }
 
         .content-area.refreshing::after {
@@ -633,9 +727,71 @@
                 </div>`;
         }
 
+        function renderMapsBreakdown(maps) {
+            if (!maps?.length) return '';
+            const rows = maps.map(m => {
+                const f1 = m.f1_score ?? '?';
+                const f2 = m.f2_score ?? '?';
+                const w1 = m.winner === 'faction1';
+                const w2 = m.winner === 'faction2';
+                const c1 = w1 ? ' class="w"' : (w2 ? ' class="l"' : '');
+                const c2 = w2 ? ' class="w"' : (w1 ? ' class="l"' : '');
+                return `<div class="map-row">
+                    <span class="map-row-name">🗺 ${escHtml(m.map)}</span>
+                    <span class="map-row-score"><span${c1}>${f1}</span> – <span${c2}>${f2}</span></span>
+                </div>`;
+            });
+            return `<div class="maps-breakdown">${rows.join('')}</div>`;
+        }
+
+        function renderStatsTable(factionKey, factionName, players) {
+            const rows = Object.entries(players)
+                .filter(([, p]) => p.faction === factionKey)
+                .sort(([, a], [, b]) => b.kills - a.kills);
+
+            if (!rows.length) return '';
+
+            const kdClass = (kd) => parseFloat(kd) >= 1.0 ? 'stats-kd-good' : 'stats-kd-bad';
+
+            const trs = rows.map(([, p]) => {
+                const cls = p.isTracked ? ' class="tracked"' : '';
+                return `<tr${cls}>
+                    <td>${escHtml(p.nickname)}</td>
+                    <td>${p.kills}</td>
+                    <td>${p.deaths}</td>
+                    <td>${p.assists}</td>
+                    <td>${p.adr}</td>
+                    <td><span class="${kdClass(p.kd)}">${p.kd}</span></td>
+                    <td>${p.hs_pct}%</td>
+                </tr>`;
+            }).join('');
+
+            return `<div class="stats-team-block">
+                <div class="stats-team-title">${escHtml(factionName)}</div>
+                <table class="stats-table">
+                    <thead><tr>
+                        <th>Игрок</th><th>K</th><th>D</th><th>A</th><th>ADR</th><th>K/D</th><th>HS%</th>
+                    </tr></thead>
+                    <tbody>${trs}</tbody>
+                </table>
+            </div>`;
+        }
+
+        function renderStatsSection(match) {
+            const ms = match.matchStats;
+            if (!ms) return '';
+            const f1 = match.teams.faction1;
+            const f2 = match.teams.faction2;
+            const tables = renderStatsTable('faction1', f1.name || 'Faction 1', ms.players)
+                         + renderStatsTable('faction2', f2.name || 'Faction 2', ms.players);
+            return `<div class="stats-section">${tables}</div>`;
+        }
+
         function renderMatch(match) {
             const metaParts = [match.region, match.best_of ? `BO${match.best_of}` : null].filter(Boolean);
             const extIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF5500" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;display:block"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+            const hasStats = !!match.matchStats;
+            const multiMap = hasStats && match.matchStats.maps.length > 1;
             return `
                 <div class="match-card">
                     <div class="match-header">
@@ -649,10 +805,14 @@
                         <a class="match-status status-${match.status}" href="${match.matchUrl}" target="_blank">${statusLabel(match.status)}${extIcon}</a>
                     </div>
                     ${renderVsSection(match)}
-                    <div class="teams">
-                        ${renderTeamColumn(match.teams.faction1)}
-                        ${renderTeamColumn(match.teams.faction2)}
-                    </div>
+                    ${multiMap ? renderMapsBreakdown(match.matchStats.maps) : ''}
+                    ${hasStats
+                        ? renderStatsSection(match)
+                        : `<div class="teams">
+                            ${renderTeamColumn(match.teams.faction1)}
+                            ${renderTeamColumn(match.teams.faction2)}
+                           </div>`
+                    }
                 </div>`;
         }
 

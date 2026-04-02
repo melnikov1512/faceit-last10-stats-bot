@@ -82,6 +82,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - **npm Scripts**:
     - `npm start` — Production start (`node index.js`).
     - `npm run dev` — Local dev: starts ngrok tunnel and `node index.js` concurrently.
+    - `npm run test-notify -- --nickname <nick> --chatId <chatId>` — Simulate a FACEIT match notification locally (see `scripts/test-notify.js`).
 - **Request Handling**:
   - `POST /`: Handles Telegram updates (routed to `src/handlers/webhookHandler.js`).
   - `POST /webhook/faceit`: Handles FACEIT match events (routed to `src/handlers/faceitWebhookHandler.js`).
@@ -138,5 +139,6 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `config.json`: Master configuration file (default values; no secrets).
 - `scripts/` — утилиты для разработки (пусто после удаления `set-webhook.js`).
 - `scripts/migrate-chats.js`: Migrates `chats` collection from `players: string[]` to `players: [{id, nickname}]`. Idempotent — safe to run multiple times. Runs automatically on server startup and via `npm run migrate`.
+- `scripts/test-notify.js`: **Dev-only test script.** Simulates a `match_status_ready` FACEIT webhook for a given player. Fetches the player's most recent match from FACEIT API and POSTs it to the local bot. Usage: `npm run test-notify -- --nickname <nick> --chatId <chatId> [--port 8080] [--secret <secret>]`.
 - `ai-files/LOCAL_TESTING.md`: Local testing guide (Russian).
 - `ai-files/faceit-open-api.json`: OpenAPI 3.0 spec for FACEIT Data API v4.

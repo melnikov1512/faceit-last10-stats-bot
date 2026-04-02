@@ -276,6 +276,27 @@ async function getMatchDetails(apiKey, matchId) {
 }
 
 /**
+ * Fetch per-player statistics for a finished match.
+ * Returns null for ongoing matches (404) or on error.
+ * @param {string} apiKey
+ * @param {string} matchId
+ * @returns {Promise<object|null>} Raw FACEIT stats: { rounds: [...] }
+ */
+async function getMatchStats(apiKey, matchId) {
+    if (!apiKey || !matchId) return null;
+    const apiClient = getApiClient(apiKey);
+    try {
+        const response = await apiClient.get(`/matches/${matchId}/stats`);
+        return response.data;
+    } catch (error) {
+        if (error.response?.status !== 404) {
+            console.error(`Error fetching match stats for ${matchId}:`, error.message);
+        }
+        return null;
+    }
+}
+
+/**
  * Enrich a match object's rosters with each player's current ELO and skill level.
  * Fetches all roster players in parallel (chunked).
  * @param {string} apiKey
@@ -320,5 +341,6 @@ module.exports = {
     getLeaderboardStats,
     getPlayerIdByNickname,
     getMatchDetails,
+    getMatchStats,
     enrichMatchWithRosterElos,
 };
