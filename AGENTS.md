@@ -94,7 +94,8 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - **npm Scripts**:
     - `npm start` — Production start (`node index.js`).
     - `npm run dev` — Local dev: starts ngrok tunnel and `node index.js` concurrently.
-    - `npm run test-notify -- --nickname <nick> --chatId <chatId>` — Simulate a FACEIT match notification locally (see `scripts/test-notify.js`).
+    - `npm run test-notify -- --nickname <nick> --chatId <chatId>` — Simulate a FACEIT **match start** notification locally (see `scripts/test-notify.js`).
+    - `npm run test-notify-finish -- --nickname <nick> --chatId <chatId>` — Simulate a FACEIT **match finish** notification locally (see `scripts/test-notify-finish.js`). Add `--force` to bypass Firestore subscriptions and send the result card directly via Telegram API. Add `--matchId <id>` to use a specific match.
 - **Request Handling**:
   - `POST /`: Handles Telegram updates (routed to `src/handlers/webhookHandler.js`).
   - `POST /webhook/faceit`: Handles FACEIT match events (routed to `src/handlers/faceitWebhookHandler.js`).

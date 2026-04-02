@@ -6,6 +6,7 @@
         "start": "node index.js",
         "set-webhook": "node scripts/set-webhook.js",
         "test-notify": "node scripts/test-notify.js",
+        "test-notify-finish": "node scripts/test-notify-finish.js",
         "dev": "concurrently --names \"ngrok,server\" --prefix-colors \"cyan,green\" \"ngrok http --url=huddlingly-shirty-chantal.ngrok-free.dev 8080\" \"node index.js\""
     },
     "engines": {
