@@ -1,4 +1,11 @@
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const path = require('path');
+
+// Register bundled Inter fonts so rendering is identical in every environment.
+// Fallback to system sans-serif only if files are missing (e.g. in unit tests).
+const FONTS_DIR = path.join(__dirname, '../assets/fonts');
+GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'Inter-Regular.woff2'), 'Inter');
+GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'Inter-Bold.woff2'),    'Inter');
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const COLOR = {
@@ -15,7 +22,7 @@ const COLOR = {
 };
 
 // ── Typography ────────────────────────────────────────────────────────────────
-const FONT_FAMILY = 'sans-serif';
+const FONT_FAMILY = 'Inter';
 const FONT = {
     title:         `bold 35px ${FONT_FAMILY}`,
     subtitle:      `24px ${FONT_FAMILY}`,
