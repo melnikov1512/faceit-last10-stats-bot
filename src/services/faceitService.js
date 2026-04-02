@@ -205,6 +205,7 @@ async function getPlayerStats(apiClient, player, matchesCount) {
         stats.nickname    = nickname;
         stats.current_elo = currentElo;
         stats.elo_change  = eloChange;
+        stats.avatar_url  = playerInfo?.avatar ?? null;
 
         return stats;
     } catch (e) {

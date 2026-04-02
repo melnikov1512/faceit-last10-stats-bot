@@ -4,7 +4,9 @@
 
 > These rules are mandatory and must be followed in every session.
 
-1. **Never commit automatically.** Do not run `git commit` (or any command that creates a commit) without explicit user instruction. Always show the proposed changes and wait for approval before committing.
+1. **Act as a Senior Developer.** You are a Senior JS developer, Senior UI developer, and Senior Backend developer. Apply best practices, clean architecture, and production-quality standards in every change.
+
+2. **Never commit automatically.** Do not run `git commit` (or any command that creates a commit) without explicit user instruction. Always show the proposed changes and wait for approval before committing.
 
 2. **Tool priority order.** When solving a task, prefer tools in this order:
    1. Built-in tools (grep, glob, view, edit, create, bash, sql, etc.)
@@ -34,6 +36,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     res.json(replyPayload);
     ```
 - **Stats Module**: `src/services/faceitService.js`. Calculates average stats (ADR, K/D, kills, ELO, ELO change) from the last N matches.
+- **Image Module**: `src/services/imageService.js`. Generates a FACEIT-styled PNG from leaderboard data using `@napi-rs/canvas`. Exports `generateStatsImage(leaderboard, matchesCount) → Buffer`. Canvas size: 680 × (72 + N×52 + 36) px. Design: dark `#1F1F1F` background, `#FF5500` orange accent, white/gray text, green/red ±ELO colouring.
     - **Faceit API**: Uses v4 `/players?nickname={nick}&game=cs2`, `/players/{id}/games/cs2/stats?limit={N}`, and the unofficial ELO timeline endpoint `https://api.faceit.com/stats/v1/stats/time/users/{playerId}/games/cs2`. Match details fetched via `/matches/{matchId}` as fallback.
     - **ELO API Note**: The unofficial ELO timeline endpoint is fetched using Node.js native `fetch` (not axios) to bypass Cloudflare protection.
     - **Batching**: Processes player lookups in chunks of 10 to manage API rate limits. For each player, `getPlayerInfoById`, game stats, and ELO timeline are fetched in parallel (3 concurrent requests per player, no sequential nickname→id resolution needed).
@@ -59,8 +62,8 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **Supported Event**: `match_status_ready`.
     - **Web App Button**: If `WEBAPP_URL` env var is set, the match notification includes an inline `web_app` button that opens the Mini App for the chat.
     - **FACEIT Webhook Handler**: `src/handlers/faceitWebhookHandler.js` validates the `x-faceit-webhook-secret` header, responds `200` immediately, then processes the event asynchronously via `handleMatchEvent()`.
-- **Telegram Module**: `src/services/telegramService.js`. Sends messages to Telegram chats via Bot API (used for push notifications from FACEIT webhook events, not the webhook reply mechanism).
-- **Command Logic**: `src/handlers/commandHandler.js`. Handles the following commands (all defined in `src/commands.js`):
+- **Telegram Module**: `src/services/telegramService.js`. Sends messages to Telegram chats via Bot API (used for push notifications from FACEIT webhook events, not the webhook reply mechanism). Exports `sendMessage(chatId, text, replyMarkup?)` and `sendPhoto(chatId, imageBuffer, caption?)` (multipart/form-data upload).
+- **Command Logic**: `src/handlers/commandHandler.js`. Handles the following commands (all defined in `src/commands.js`). Handlers that send responses directly (e.g. `sendPhoto` for `/stats`) return `null`; `webhookHandler` sends `200` without a reply body in that case.
     | Command | Arguments | Purpose |
     |---|---|---|
     | `/stats` | `[N]` (2–100, default 10) | Show stats table for tracked players |
@@ -128,9 +131,10 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/handlers/commandHandler.js`: Business logic for all bot commands.
 - `src/handlers/apiHandler.js`: REST handlers for `GET /api/active-matches` and `GET /api/match` — returns active/single match data. Shared `formatMatchResponse()` helper eliminates duplication.
 - `src/services/faceitService.js`: CS2 stats logic; FACEIT API client (single cached axios instance); ELO timeline fetcher; roster ELO enrichment.
+- `src/services/imageService.js`: Generates FACEIT-styled PNG stats card using `@napi-rs/canvas`. Exports `generateStatsImage(leaderboard, matchesCount) → Buffer`.
 - `src/services/storageService.js`: Firestore database operations (players, subscriptions, deduplication).
 - `src/services/subscriptionService.js`: Match-start event handling and notification dispatch (includes web app inline button when `WEBAPP_URL` is set).
-- `src/services/telegramService.js`: Telegram Bot API integration for push notifications. `sendMessage(chatId, text, replyMarkup?)` supports optional inline keyboards.
+- `src/services/telegramService.js`: Telegram Bot API integration for push notifications. `sendMessage(chatId, text, replyMarkup?)` supports optional inline keyboards. `sendPhoto(chatId, imageBuffer, caption?)` sends a PNG via multipart/form-data.
 - `src/config.js`: Configuration loader (env vars + config.json).
 - `src/commands.js`: **Единый реестр команд.** Экспортирует `COMMAND_LIST` (полные описания), `COMMANDS` (словарь строк), `BOT_COMMANDS` (для `setMyCommands` API). Единственное место для добавления новых команд.
 - `src/constants.js`: Shared runtime constants — `FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS`.

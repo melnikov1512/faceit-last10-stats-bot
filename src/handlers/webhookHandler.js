@@ -72,6 +72,11 @@ async function handleWebhook(req, res) {
 
         const result = await handleCommand(command, chatId, args, apiKey, chatName);
 
+        // Handler sent the response directly (e.g. photo) — just acknowledge
+        if (result === null) {
+            return res.sendStatus(200);
+        }
+
         // ForceReply: ask user to provide the missing argument
         if (result?.type === 'force_reply') {
             const isPrivate = message.chat.type === 'private';

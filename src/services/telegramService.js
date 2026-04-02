@@ -1,4 +1,5 @@
 const axios = require('axios');
+const FormData = require('form-data');
 const config = require('../config');
 const { BOT_COMMANDS } = require('../commands');
 
@@ -61,4 +62,31 @@ async function sendMessage(chatId, text, replyMarkup = null) {
     }
 }
 
-module.exports = { sendMessage, setMyCommands, fetchBotUsername };
+async function sendPhoto(chatId, imageBuffer, caption = null) {
+    const token = config.telegram_bot_token;
+    if (!token) {
+        console.error('TELEGRAM_BOT_TOKEN is not configured');
+        return;
+    }
+
+    try {
+        const form = new FormData();
+        form.append('chat_id', String(chatId));
+        form.append('photo', imageBuffer, { filename: 'stats.png', contentType: 'image/png' });
+        if (caption) {
+            form.append('caption', caption);
+            form.append('parse_mode', 'HTML');
+        }
+
+        await axios.post(
+            `https://api.telegram.org/bot${token}/sendPhoto`,
+            form,
+            { headers: form.getHeaders() }
+        );
+    } catch (error) {
+        console.error(`Failed to send Telegram photo to chat ${chatId}:`, error.message);
+        throw error;
+    }
+}
+
+module.exports = { sendMessage, sendPhoto, setMyCommands, fetchBotUsername };

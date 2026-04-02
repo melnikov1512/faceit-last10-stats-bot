@@ -6,6 +6,8 @@ const config = require('../config');
 const storageService = require('../services/storageService');
 const { subscribePlayerToChat, unsubscribePlayerFromChat } = require('../services/subscriptionService');
 const { COMMANDS, COMMAND_LIST } = require('../commands');
+const { generateStatsImage } = require('../services/imageService');
+const { sendPhoto } = require('../services/telegramService');
 
 function forceReply(commandKey) {
     const cmd = COMMAND_LIST.find(c => c.key === commandKey);
@@ -82,7 +84,16 @@ async function handleStats(chatId, args, apiKey) {
     }
 
     const leaderboard = await getLeaderboardStats(apiKey, players, matchesCount);
-    return formatStatsMessage(leaderboard, matchesCount);
+
+    if (!leaderboard || leaderboard.length === 0) {
+        return 'Failed to retrieve stats for any player.';
+    }
+
+    const imageBuffer = await generateStatsImage(leaderboard, matchesCount);
+    await sendPhoto(chatId, imageBuffer);
+
+    // Return null — photo already sent via direct API call; webhook reply not needed
+    return null;
 }
 
 async function handlePlayers(chatId) {
