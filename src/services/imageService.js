@@ -847,4 +847,37 @@ async function generateMatchResultImage(data) {
     return canvas.toBuffer('image/png');
 }
 
-module.exports = { generateStatsImage, generateMatchImage, generateMatchResultImage, generatePlayerCard, generatePlayersListImage };
+/**
+ * Generates one vertical image with multiple match result cards.
+ * @param {Array<object>} playersData
+ * @returns {Promise<Buffer>}
+ */
+async function generateMatchResultsSummaryImage(playersData) {
+    if (!Array.isArray(playersData) || playersData.length === 0) {
+        throw new Error('playersData is required');
+    }
+
+    const cardBuffers = await Promise.all(playersData.map(playerData => generateMatchResultImage(playerData)));
+    const cardImages = await Promise.all(cardBuffers.map((buffer) => loadImage(buffer)));
+
+    const gap = 10;
+    const width = Math.max(...cardImages.map(img => img.width));
+    const height = cardImages.reduce((sum, img) => sum + img.height, 0) + gap * (cardImages.length - 1);
+
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = COLOR.bg;
+    ctx.fillRect(0, 0, width, height);
+
+    let y = 0;
+    for (const img of cardImages) {
+        const x = Math.floor((width - img.width) / 2);
+        ctx.drawImage(img, x, y, img.width, img.height);
+        y += img.height + gap;
+    }
+
+    return canvas.toBuffer('image/png');
+}
+
+module.exports = { generateStatsImage, generateMatchImage, generateMatchResultImage, generateMatchResultsSummaryImage, generatePlayerCard, generatePlayersListImage };

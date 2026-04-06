@@ -173,6 +173,35 @@ async function markNotificationSent(matchId, chatId, playerIds = []) {
 }
 
 /**
+ * Check if a finish notification was already sent for a match+chat.
+ * @param {string} matchId
+ * @param {string} chatId
+ * @returns {Promise<boolean>}
+ */
+async function hasFinishNotificationBeenSentForChat(matchId, chatId) {
+    const docId = `${matchId}_${chatId}_finish`;
+    const doc = await sentMatchNotificationsCollection.doc(docId).get();
+    return doc.exists;
+}
+
+/**
+ * Mark a finish notification as sent for a match+chat.
+ * @param {string} matchId
+ * @param {string} chatId
+ * @param {string[]} [playerIds]
+ */
+async function markFinishNotificationSentForChat(matchId, chatId, playerIds = []) {
+    const docId = `${matchId}_${chatId}_finish`;
+    await sentMatchNotificationsCollection.doc(docId).set({
+        matchId,
+        chatId: chatId.toString(),
+        playerIds,
+        type: 'finish_chat',
+        sentAt: Firestore.Timestamp.now(),
+    });
+}
+
+/**
  * Check if a per-player finish notification was already sent.
  * @param {string} matchId
  * @param {string} chatId
@@ -287,6 +316,8 @@ module.exports = {
     // Match notification deduplication
     hasNotificationBeenSent,
     markNotificationSent,
+    hasFinishNotificationBeenSentForChat,
+    markFinishNotificationSentForChat,
     hasFinishNotificationBeenSent,
     markFinishNotificationSent,
     getRecentMatchIdsForPlayers,

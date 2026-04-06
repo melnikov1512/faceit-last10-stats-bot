@@ -1,8 +1,8 @@
 const storageService = require('./storageService');
 const { sendPhoto } = require('./telegramService');
 const { getMatchDetails, getMatchStats, extractPlayerMatchStats, getPlayerDetails, getLastMatchEloChange } = require('./faceitService');
-const { generateMatchImage, generateMatchResultImage } = require('./imageService');
-const { getRandomFunnyMessage, getExamplePlayersText } = require('../data/matchFinishMessages');
+const { generateMatchImage, generateMatchResultsSummaryImage } = require('./imageService');
+const { getRandomFunnyMessage } = require('../data/matchFinishMessages');
 const { escapeHtml } = require('../utils');
 const config = require('../config');
 
@@ -140,11 +140,19 @@ function buildWebAppButton(chatId, matchId) {
     return null;
 }
 
+function buildFinishJokesCaption(players) {
+    const jokeLines = players
+        .filter(player => player.currentElo != null && player.currentElo < ELO_THRESHOLD)
+        .map(player => `😄 ${escapeHtml(getRandomFunnyMessage(player.nickname, player.currentElo))}`);
+
+    if (jokeLines.length === 0) return null;
+    return jokeLines.join('\n\n');
+}
+
 /**
  * Handle an incoming FACEIT match_status_finished webhook event.
- * For each subscribed chat, sends a per-player result card + funny message
- * for every tracked player whose current ELO is below the threshold (2000).
- * If any tracked player in the match is ≥2000 ELO, appends a "take example" line.
+ * For each subscribed chat, sends one aggregated finish image for the match.
+ * The caption contains only funny lines for tracked players below 2000 ELO.
  * @param {object} payload  The event payload from FACEIT
  */
 async function handleMatchFinishedEvent(payload) {
@@ -176,7 +184,7 @@ async function handleMatchFinishedEvent(payload) {
     const competitionName = matchData?.competition_name ?? null;
 
     // Find which chats are subscribed and which players are in each chat
-    const chatToPlayers = new Map(); // chatId → [{ playerId, nickname }]
+    const chatToPlayers = new Map(); // chatId → Map<playerId, { playerId, nickname }>
     await Promise.all(allRosterPlayers.map(async (rosterPlayer) => {
         const playerId = rosterPlayer.player_id;
         const nickname = rosterPlayer.nickname;
@@ -184,8 +192,11 @@ async function handleMatchFinishedEvent(payload) {
 
         const subscribedChats = await storageService.getSubscribedChats(playerId);
         for (const chatId of subscribedChats) {
-            if (!chatToPlayers.has(chatId)) chatToPlayers.set(chatId, []);
-            chatToPlayers.get(chatId).push({ playerId, nickname });
+            if (!chatToPlayers.has(chatId)) chatToPlayers.set(chatId, new Map());
+            const playersMap = chatToPlayers.get(chatId);
+            if (!playersMap.has(playerId)) {
+                playersMap.set(playerId, { playerId, nickname });
+            }
         }
     }));
 
@@ -201,9 +212,16 @@ async function handleMatchFinishedEvent(payload) {
         return;
     }
 
-    await Promise.all([...chatToPlayers.entries()].map(async ([chatId, players]) => {
+    await Promise.all([...chatToPlayers.entries()].map(async ([chatId, playersMap]) => {
+        const players = [...playersMap.values()];
         // Clean up active match record for this chat
         storageService.removeActiveMatch(chatId, matchId).catch(() => {});
+
+        const alreadySent = await storageService.hasFinishNotificationBeenSentForChat(matchId, chatId);
+        if (alreadySent) {
+            console.log(`[FACEIT WEBHOOK] Finish notification for match ${matchId} already sent to chat ${chatId}, skipping`);
+            return;
+        }
 
         // Fetch current ELO + details for all tracked players in parallel
         const playerDetails = await Promise.all(players.map(async ({ playerId, nickname }) => {
@@ -219,53 +237,36 @@ async function handleMatchFinishedEvent(payload) {
             };
         }));
 
-        const belowThreshold = playerDetails.filter(p => p.currentElo != null && p.currentElo < ELO_THRESHOLD);
-        const aboveThreshold = playerDetails.filter(p => p.currentElo != null && p.currentElo >= ELO_THRESHOLD);
-
-        if (belowThreshold.length === 0) {
-            console.log(`[FACEIT WEBHOOK] Finish: match ${matchId} chat ${chatId} — no players below ${ELO_THRESHOLD} ELO`);
-            return;
-        }
+        const cardPlayersData = playerDetails.map((player) => {
+            const stats = extractPlayerMatchStats(matchStats, player.playerId) || {};
+            return {
+                nickname: player.nickname,
+                avatar_url: player.avatar_url,
+                skillLevel: player.skillLevel,
+                currentElo: player.currentElo,
+                eloChange: player.eloChange,
+                competition: competitionName,
+                kills: stats.kills ?? 0,
+                deaths: stats.deaths ?? 0,
+                assists: stats.assists ?? 0,
+                kd: stats.kd ?? 0,
+                adr: stats.adr ?? 0,
+                hsPercent: stats.hsPercent ?? 0,
+                result: stats.result ?? null,
+                map: stats.map ?? null,
+            };
+        });
 
         const button      = buildWebAppButton(chatId, matchId);
         const replyMarkup = button ? { inline_keyboard: [[button]] } : null;
-        const exampleText = aboveThreshold.length > 0
-            ? getExamplePlayersText(aboveThreshold.map(p => p.nickname))
-            : null;
 
-        await Promise.all(belowThreshold.map(async (player) => {
-            const alreadySent = await storageService.hasFinishNotificationBeenSent(matchId, chatId, player.playerId);
-            if (alreadySent) {
-                console.log(`[FACEIT WEBHOOK] Finish notification for ${player.nickname} in chat ${chatId} already sent, skipping`);
-                return;
-            }
+        await storageService.markFinishNotificationSentForChat(matchId, chatId, players.map(p => p.playerId));
 
-            const playerMatchStats = extractPlayerMatchStats(matchStats, player.playerId);
-            if (!playerMatchStats) {
-                console.warn(`[FACEIT WEBHOOK] Finish: no stats for player ${player.nickname} in match ${matchId}`);
-                return;
-            }
+        const imageBuffer = await generateMatchResultsSummaryImage(cardPlayersData);
+        const caption = buildFinishJokesCaption(playerDetails);
 
-            await storageService.markFinishNotificationSent(matchId, chatId, player.playerId);
-
-            const imageBuffer = await generateMatchResultImage({
-                nickname:    player.nickname,
-                avatar_url:  player.avatar_url,
-                skillLevel:  player.skillLevel,
-                currentElo:  player.currentElo,
-                eloChange:   player.eloChange,
-                competition: competitionName,
-                ...playerMatchStats,
-            });
-
-            const funnyMessage = getRandomFunnyMessage(player.nickname, player.currentElo);
-            const caption = exampleText
-                ? `${escapeHtml(funnyMessage)}\n\n${escapeHtml(exampleText)}`
-                : escapeHtml(funnyMessage);
-
-            await sendPhoto(chatId, imageBuffer, caption, replyMarkup);
-            console.log(`[FACEIT WEBHOOK] Finish: sent result card for ${player.nickname} (${player.currentElo} ELO) to chat ${chatId}`);
-        }));
+        await sendPhoto(chatId, imageBuffer, caption, replyMarkup);
+        console.log(`[FACEIT WEBHOOK] Finish: sent aggregated notification for match ${matchId} to chat ${chatId} (players: ${players.map(p => p.nickname).join(', ')})`);
     }));
 }
 

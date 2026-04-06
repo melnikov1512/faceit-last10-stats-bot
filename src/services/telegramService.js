@@ -40,20 +40,25 @@ async function setMyCommands() {
     }
 }
 
-async function sendMessage(chatId, text, replyMarkup = null) {
+async function sendMessage(chatId, text, replyMarkup = null, options = {}) {
     const token = config.telegram_bot_token;
     if (!token) {
         console.error('TELEGRAM_BOT_TOKEN is not configured');
         return;
     }
 
+    const {
+        parseMode = 'Markdown',
+        disableWebPagePreview = true,
+    } = options;
+
     try {
         const payload = {
             chat_id: chatId,
             text,
-            parse_mode: 'Markdown',
-            disable_web_page_preview: true,
+            disable_web_page_preview: disableWebPagePreview,
         };
+        if (parseMode) payload.parse_mode = parseMode;
         if (replyMarkup) payload.reply_markup = replyMarkup;
 
         await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, payload);
