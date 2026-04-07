@@ -4,21 +4,13 @@
 
 > These rules are mandatory and must be followed in every session.
 
-1. **Act as a Senior Developer.** You are a Senior JS developer, Senior UI developer, and Senior Backend developer. Apply best practices, clean architecture, and production-quality standards in every change.
-
-2. **Never commit automatically.** Do not run `git commit` (or any command that creates a commit) without explicit user instruction. Always show the proposed changes and wait for approval before committing.
-
-3. **Tool priority order.** When solving a task, prefer tools in this order:
+1. **Tool priority order.** When solving a task, prefer tools in this order:
    1. Built-in tools (grep, glob, view, edit, create, bash, sql, etc.)
    2. MCP servers (GitHub MCP, etc.)
    3. Ecosystem CLI tools (`npm`, `git`, `gcloud`, etc.)
    4. Custom scripts — use only as a last resort when built-in tools cannot accomplish the task.
 
-4. **Keep AGENTS.md up to date.** After making any changes to the codebase (new files, renamed files, changed architecture, new commands, new env vars, changed workflows, etc.) — update the relevant sections of this file before finishing the task.
-
-5. **Plan before implementing.** If the user message starts with `План`, `Спланируй`, `Подготовь план`, or a similar planning intent — prepare an implementation plan only. Do not write any code or make any changes until the user explicitly confirms (e.g. "поехали", "давай", "go", "start").
-
-6. **Answer without implementing.** If the user message starts with `Вопрос` — provide an answer or analysis only. Do not implement anything.
+2. **Keep AGENTS.md up to date.** After making any changes to the codebase (new files, renamed files, changed architecture, new commands, new env vars, changed workflows, etc.) — update the relevant sections of this file before finishing the task.
 
 ## Project Overview
 This is a Node.js Telegram bot designed to run as a **Google Cloud Function** (HTTP Trigger). It fetches **FACEIT Data API v4** statistics for **Counter-Strike 2 (CS2)** and communicates with Telegram via **Webhook Replies**.
