@@ -44,6 +44,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - `generateStatsImage(leaderboard, matchesCount) → Promise<Buffer>` — stats leaderboard card (720px wide).
     - `generateMatchImage(matchInfo) → Promise<Buffer>` — match notification card (640px wide). Shows team names, ELO, win probability pill, tracked player highlights with orange accent. `matchInfo`: `{ team1, team2, competition, region, bestOf }` where each team is `{ name, elo, winProb, trackedPlayers[] }`.
     - `generateMatchResultImage(data) → Promise<Buffer>` — single-player match result card (540px wide). Shows WIN/LOSE badge, player avatar + nickname + skill level, current ELO + ELO delta, and per-match stats (Kills, Assists, K/D, ADR, HS%). Used by finish notifications for <2000 ELO players. `data`: `{ nickname, avatar_url, skillLevel, currentElo, eloChange, kills, deaths, assists, kd, adr, hsPercent, result, competition, map }`.
+    - `generateMatchResultsSummaryImage(playersData) → Promise<Buffer>` — stacks multiple `generateMatchResultImage` cards vertically (10px gap) into a single PNG. Used by `handleMatchFinishedEvent` to send one aggregated image per chat.
     - `generatePlayerCard(player, action) → Promise<Buffer>` — add/remove confirmation card (500px wide).
     - `generatePlayersListImage(players) → Promise<Buffer>` — tracked players list card (540px wide), sorted by ELO descending.
     - **Fonts**: bundled Inter WOFF2 in `src/assets/fonts/` registered via `GlobalFonts` — identical rendering on macOS and Linux.
@@ -54,25 +55,33 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **Active Match API**: `enrichMatchWithRosterElos(apiKey, match)` — adds `faceit_elo` and `skill_level` to every roster player. Single-match lookup is handled by `GET /api/match` in `apiHandler.js`.
     - **Axios client**: Single module-level instance (`getApiClient`) — created once and reused across all FACEIT API calls.
 - **Web App**: `public/index.html`. Telegram Mini App that displays active matches for subscribed players in a chat.
-    - Opened via `GET /` (static file served from `public/`).
-    - Reads `?chatId=` URL param (or Telegram `start_param`).
+    - Served at `GET /app` (static middleware from `public/`). Not at root `/`.
+    - Reads `?chatId=` and optional `?matchId=` URL params (or Telegram `start_param` `{chatId}_{matchId}`).
     - Fetches `GET /api/active-matches?chatId=…` and renders each match with full team rosters, ELO badges, skill level icons, live score (if `ONGOING`), and tracked-player highlights.
     - Tracked players shown in green; teams colour-coded blue/red.
     - Shows a 🔄 Refresh button.
-- **REST API Handler**: `src/handlers/apiHandler.js`. Serves `GET /api/active-matches?chatId=<id>`.
-    - Returns JSON `{ matches: [...] }` — one entry per unique active match.
-    - Each match includes `matchId`, `status`, `competition_name`, `region`, `best_of`, `results` (score), `teams` (both rosters with ELO), `trackedPlayers`, `matchUrl`.
+- **REST API Handler**: `src/handlers/apiHandler.js`. Serves `GET /api/active-matches?chatId=<id>` and `GET /api/match?matchId=<id>&chatId=<id>`.
+    - Active matches response: JSON `{ matches: [...] }` — one entry per unique active match.
+    - Each match includes `matchId`, `status`, `competition_name`, `region`, `best_of`, `results` (score), `mapInfo` (`{ name, image }` from voting data, nullable), `teams` (both rosters with ELO), `trackedPlayers`, `matchUrl`.
+    - Single match (`GET /api/match`): JSON `{ match: {...} }` — same shape plus `matchStats: { maps, players }` when FACEIT stats are available. `players` is keyed by `player_id` with `{ nickname, faction, kills, deaths, assists, kd, adr, hs_pct, isTracked, avatar }`.
+    - `processMatchStats(statsData, faction1Id, faction2Id)` — local helper that aggregates per-player stats across maps and extracts map scores (used by `getMatch`).
+    - Match ID sources for active-matches are delegated to `src/services/matchService.js`.
 - **Storage Module**: `src/services/storageService.js`. Manages per-chat data using Firestore.
     - **Collections**:
         - `chats` — Document ID = `chatId`. Structure: `{ name: "Chat Name", players: [{ id: "faceit-uuid", nickname: "s1mple" }] }`.
         - `player_subscriptions` — Document ID = `playerId` (FACEIT GUID). Structure: `{ playerId, nickname, subscribedChats: [chatIds] }`.
-        - `sent_match_notifications` — Document ID = `{matchId}_{chatId}` (start dedup) or `{matchId}_{chatId}_{playerId}_finish` (finish dedup per player). Fields: `matchId`, `chatId`, `sentAt`, optionally `playerId`, `type`.
+        - `sent_match_notifications` — Three dedup variants:
+            - Start: `{matchId}_{chatId}` — Fields: `matchId`, `chatId`, `playerIds[]`, `sentAt`. `playerIds` enables cross-chat match lookup via `getRecentMatchIdsForPlayers`.
+            - Finish (chat-level): `{matchId}_{chatId}_finish` — Fields: `matchId`, `chatId`, `playerIds[]`, `type: 'finish_chat'`, `sentAt`.
+            - Finish (per-player, legacy): `{matchId}_{chatId}_{playerId}_finish` — Fields: `matchId`, `chatId`, `playerId`, `type: 'finish'`, `sentAt`.
+        - `active_matches` — Document ID = `{chatId}_{matchId}`. Structure: `{ chatId, matchId, startedAt }`. Written when a match-start notification is sent; deleted when the match finishes/is cancelled. Functions: `storeActiveMatch`, `getActiveMatchIds`, `removeActiveMatch`.
+    - **Key function**: `getRecentMatchIdsForPlayers(playerIds, sinceTs)` — searches `sent_match_notifications` (where `playerIds` array-contains a tracked player) within a 6-hour window. Used by `matchService` as a cross-chat fallback to find active matches.
     - **Requirement**: Firestore database must be created in **Native Mode**.
 - **Subscription Module**: `src/services/subscriptionService.js`. Handles match-start and match-finish event logic triggered by FACEIT webhooks. Queries subscriptions, deduplicates notifications, and dispatches Telegram messages. Subscription management (subscribe/unsubscribe) is handled automatically by `add_player`/`remove_player` commands via `storageService.subscribeChat` / `storageService.unsubscribeChat`.
     - **Supported Events**: `match_status_ready` (match start) and `match_status_finished` (match end).
-    - **Match Start** (`handleMatchEvent`): sends a match card image to all subscribed chats with team rosters, ELO, win probability.
-    - **Match Finish** (`handleMatchFinishedEvent`): for each subscribed chat, checks tracked players' current ELO. For every player with ELO < 2000, sends a personal result card (stats from that match + current ELO) with a random funny message and how many wins remain until level 10 (≈ ELO left / 25). If any tracked player in the match has ELO ≥ 2000, appends a "take example" line to each message. Deduplication key: `${matchId}_${chatId}_${playerId}_finish`.
-    - **Web App Button**: If `WEBAPP_URL` env var is set, both start and finish notifications include an inline `web_app` button that opens the Mini App for the chat.
+    - **Match Start** (`handleMatchEvent`): sends a match card image to all subscribed chats with team rosters, ELO, win probability. Also calls `storeActiveMatch(chatId, matchId)`.
+    - **Match Finish** (`handleMatchFinishedEvent`): for each subscribed chat, fetches current ELO and match stats for all tracked players, then sends ONE aggregated image (`generateMatchResultsSummaryImage`) stacking per-player result cards vertically. Caption contains funny lines (from `getRandomFunnyMessage`) for players with ELO < 2000. Deduplication key: `${matchId}_${chatId}_finish` (chat-level). Also calls `removeActiveMatch`.
+    - **Web App Button**: If `WEBAPP_URL` env var is set, both start and finish notifications include an inline button. **Groups** (negative chat ID + `BOT_USERNAME` set): `url` button → `https://t.me/{bot_username}?startapp={chatId}_{matchId}&mode=compact`. **Private chats**: `web_app` type button → `{WEBAPP_URL}?chatId={chatId}&matchId={matchId}`.
     - **FACEIT Webhook Handler**: `src/handlers/faceitWebhookHandler.js` validates the `x-faceit-webhook-secret` header, responds `200` immediately, then processes the event asynchronously via `handleMatchEvent()` or `handleMatchFinishedEvent()`.
 - **Telegram Module**: `src/services/telegramService.js`. Sends messages to Telegram chats via Bot API (used for push notifications from FACEIT webhook events, not the webhook reply mechanism). Exports `sendMessage(chatId, text, replyMarkup?)` and `sendPhoto(chatId, imageBuffer, caption?, replyMarkup?)` (multipart/form-data upload with optional inline keyboard).
 - **Command Logic**: `src/handlers/commandHandler.js`. Handles the following commands (all defined in `src/commands.js`). Handlers that send responses directly (e.g. `sendPhoto` for `/stats`) return `null`; `webhookHandler` sends `200` without a reply body in that case.
@@ -121,6 +130,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     | `faceit_webhook_secret` | `FACEIT_WEBHOOK_SECRET` | FACEIT webhook validation (optional) |
     | `projectId` | `GCLOUD_PROJECT` or `GOOGLE_CLOUD_PROJECT` | GCP project for Firestore |
     | `webapp_url` | `WEBAPP_URL` | Public HTTPS URL of the web app (e.g. `https://…/app`). Enables Mini App button in match notifications. |
+    | `bot_username` | `BOT_USERNAME` | Telegram bot username (without `@`). Auto-populated at startup via `fetchBotUsername()` (`getMe` API). Required for group-chat Mini App `t.me` links. |
     | `last_matches` | — | Default N for `/stats` |
   - **Security**: 
     - Use `.env` file for local `FACEIT_API_KEY`, `TELEGRAM_BOT_TOKEN`, `FACEIT_WEBHOOK_SECRET`.
@@ -140,11 +150,13 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/handlers/faceitWebhookHandler.js`: FACEIT webhook handler (validates secret, async event processing).
 - `src/handlers/commandHandler.js`: Business logic for all bot commands.
 - `src/handlers/apiHandler.js`: REST handlers for `GET /api/active-matches` and `GET /api/match` — returns active/single match data. Shared `formatMatchResponse()` helper eliminates duplication.
-- `src/services/faceitService.js`: CS2 stats logic; FACEIT API client (single cached axios instance); ELO timeline fetcher; roster ELO enrichment. Also exports `extractPlayerMatchStats(matchStats, playerId)` and `getLastMatchEloChange(playerId)`.
-- `src/services/imageService.js`: Generates FACEIT-styled PNG stats card using `@napi-rs/canvas`. Exports `generateStatsImage(leaderboard, matchesCount) → Buffer`.
+- `src/services/matchService.js`: Collects and filters active match IDs for a chat. Exports:
+    - `collectMatchIds(chatId, trackedPlayerIds)` — merges IDs from `active_matches` collection and `sent_match_notifications` cross-chat fallback (6-hour window).
+    - `fetchActiveMatchDetails(chatId, matchIds, apiKey, trackedPlayerIds)` — fetches match details, filters out finished ones (and removes them from `active_matches` storage), optionally filters by tracked player membership.
+- `src/services/imageService.js`: Generates FACEIT-styled PNGs using `@napi-rs/canvas`. See Image Module section for full export list.
 - `src/services/storageService.js`: Firestore database operations (players, subscriptions, deduplication).
-- `src/services/subscriptionService.js`: Match-start and match-finish event handling and notification dispatch. `handleMatchEvent` for start, `handleMatchFinishedEvent` for finish (per-player result cards for <2000 ELO players with funny messages).
-- `src/data/matchFinishMessages.js`: **Message pools for finish notifications.** 30 funny messages for <2000 ELO players (`getRandomFunnyMessage(nickname, currentElo)`), 10 "take example" messages for ≥2000 ELO players (`getExamplePlayersText(nicknames[])`). Includes estimated wins to level 10 (ELO left / 25).
+- `src/services/subscriptionService.js`: Match-start and match-finish event handling and notification dispatch. `handleMatchEvent` for start, `handleMatchFinishedEvent` for finish (aggregated per-chat image via `generateMatchResultsSummaryImage`).
+- `src/data/matchFinishMessages.js`: **Message pools for finish notifications.** 30 funny messages for <2000 ELO players (`getRandomFunnyMessage(nickname, currentElo)`). Includes estimated wins to level 10 (ELO left / 25).
 - `src/services/telegramService.js`: Telegram Bot API integration for push notifications. `sendMessage(chatId, text, replyMarkup?)` supports optional inline keyboards. `sendPhoto(chatId, imageBuffer, caption?)` sends a PNG via multipart/form-data.
 - `src/config.js`: Configuration loader (env vars + config.json).
 - `src/commands.js`: **Единый реестр команд.** Экспортирует `COMMAND_LIST` (полные описания), `COMMANDS` (словарь строк), `BOT_COMMANDS` (для `setMyCommands` API). Единственное место для добавления новых команд.
@@ -152,8 +164,9 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/utils.js`: Shared utility functions — `escapeHtml`.
 - `public/index.html`: Telegram Mini App web page — shows active matches with rosters, ELO, and live scores.
 - `config.json`: Master configuration file (default values; no secrets).
-- `scripts/` — утилиты для разработки (пусто после удаления `set-webhook.js`).
-- `scripts/migrate-chats.js`: Migrates `chats` collection from `players: string[]` to `players: [{id, nickname}]`. Idempotent — safe to run multiple times. Runs automatically on server startup and via `npm run migrate`.
+- `scripts/` — development utilities:
+    - `scripts/set-webhook.js`: Registers the Telegram webhook URL (run once when URL changes, via `npm run set-webhook`).
+    - `scripts/backfill-notification-playerids.js`: One-time migration — fills missing `playerIds` field in old `sent_match_notifications` docs. Run locally: `node scripts/backfill-notification-playerids.js`.
 - `scripts/test-notify.js`: **Dev-only test script.** Simulates a `match_status_ready` FACEIT webhook for a given player. Fetches the player's most recent match from FACEIT API and POSTs it to the local bot. Usage: `npm run test-notify -- --nickname <nick> --chatId <chatId> [--port 8080] [--secret <secret>]`.
 - `ai-files/LOCAL_TESTING.md`: Local testing guide (Russian).
 - `ai-files/faceit-open-api.json`: OpenAPI 3.0 spec for FACEIT Data API v4.
