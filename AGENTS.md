@@ -104,6 +104,9 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     4. If the webhook URL ever changes, run `npm run set-webhook` once manually.
 - **npm Scripts**:
     - `npm start` — Production start (`node index.js`).
+    - `npm test` — Run all tests with Jest.
+    - `npm run test:watch` — Run tests in watch mode (re-runs on file change).
+    - `npm run test:coverage` — Run tests and generate an HTML/lcov coverage report in `coverage/`.
     - `npm run dev` — Local dev: starts ngrok tunnel and `node index.js` concurrently. **Note**: the ngrok URL is hardcoded in `package.json` as a static domain (`huddlingly-shirty-chantal.ngrok-free.dev`) — requires a paid ngrok plan or a configured free static domain. Update this URL if the ngrok domain changes.
     - `npm run test-notify -- --nickname <nick> --chatId <chatId>` — Simulate a FACEIT **match start** notification locally (see `scripts/test-notify.js`).
     - `npm run test-notify-finish -- --nickname <nick> --chatId <chatId>` — Simulate a FACEIT **match finish** notification locally (see `scripts/test-notify-finish.js`). Add `--force` to bypass Firestore subscriptions and send the result card directly via Telegram API. Add `--matchId <id>` to use a specific match.
@@ -172,3 +175,29 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `scripts/test-notify.js`: **Dev-only test script.** Simulates a `match_status_ready` FACEIT webhook for a given player. Fetches the player's most recent match from FACEIT API and POSTs it to the local bot. Usage: `npm run test-notify -- --nickname <nick> --chatId <chatId> [--port 8080] [--secret <secret>]`.
 - `ai-files/LOCAL_TESTING.md`: Local testing guide (Russian).
 - `ai-files/faceit-open-api.json`: OpenAPI 3.0 spec for FACEIT Data API v4.
+
+## Automated Testing
+
+- **Framework**: Jest 29 (CJS, Node 20).
+- **Structure**: `tests/unit/` — pure/logic tests; `tests/integration/` — handler tests with mocked deps.
+- **Mock strategy**: external services (`faceitService`, `storageService`, `telegramService`, `imageService`, `subscriptionService`, `matchService`) are fully mocked via `jest.mock()`. No real network/DB calls.
+- **Commands**: `npm test` | `npm run test:watch` | `npm run test:coverage`.
+- **Coverage report**: `coverage/` (HTML + lcov). Core handlers sit at ~97% statement coverage; external services (FACEIT API, Firestore, Telegram, Canvas) are mocked and intentionally not unit-tested.
+
+### Test files
+
+| File | What it covers |
+|---|---|
+| `tests/unit/utils.test.js` | `escapeHtml` — all HTML entity replacements, non-string input |
+| `tests/unit/constants.test.js` | `FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS` shape |
+| `tests/unit/commands.test.js` | `COMMAND_LIST` structure, `COMMANDS` map, `BOT_COMMANDS` derivation |
+| `tests/unit/matchFinishMessages.test.js` | `getRandomFunnyMessage` — placeholder replacement, edge ELO cases |
+| `tests/unit/processMatchStats.test.js` | `processMatchStats` — null input, single map, multi-map accumulation, K/D & HS% edge cases |
+| `tests/unit/matchService.test.js` | `collectMatchIds` dedup logic; `fetchActiveMatchDetails` filtering & Firestore cleanup |
+| `tests/integration/commandHandler.test.js` | All 6 commands: happy paths, error messages, `force_reply`, `web_app` result |
+| `tests/integration/webhookHandler.test.js` | Telegram webhook routing: ignoring invalid updates, `@botname` stripping, ForceReply detection, group vs private response shapes |
+| `tests/integration/faceitWebhookHandler.test.js` | Secret validation (401), unsupported events, `match_status_ready` / `match_status_finished` dispatch, fire-and-forget error swallowing |
+| `tests/integration/apiHandler.test.js` | `GET /api/active-matches` and `GET /api/match` — 400/404/500 errors, success shapes, tracked-player marking, `matchStats` enrichment |
+
+### Known bug fixed by tests
+- `src/data/matchFinishMessages.js` referenced `ELO_PER_WIN` without defining it → added `const ELO_PER_WIN = 25;` (caught by `matchFinishMessages.test.js`).

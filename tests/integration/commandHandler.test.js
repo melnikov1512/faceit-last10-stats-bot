@@ -1,0 +1,296 @@
+'use strict';
+
+jest.mock('../../src/services/faceitService');
+jest.mock('../../src/services/storageService');
+jest.mock('../../src/services/imageService');
+jest.mock('../../src/services/telegramService');
+jest.mock('../../src/services/matchService');
+jest.mock('../../src/config', () => ({
+    faceit_api_key: 'test-api-key',
+    last_matches:   10,
+    webapp_url:     'https://example.com/app',
+    bot_username:   'testbot',
+}));
+
+const storageService = require('../../src/services/storageService');
+const faceitService  = require('../../src/services/faceitService');
+const imageService   = require('../../src/services/imageService');
+const telegramService = require('../../src/services/telegramService');
+const matchService   = require('../../src/services/matchService');
+const config         = require('../../src/config');
+
+const { handleCommand } = require('../../src/handlers/commandHandler');
+const { COMMANDS }      = require('../../src/commands');
+
+const FAKE_IMAGE = Buffer.from('fake-png');
+
+beforeEach(() => {
+    jest.clearAllMocks();
+    imageService.generateStatsImage.mockResolvedValue(FAKE_IMAGE);
+    imageService.generatePlayerCard.mockResolvedValue(FAKE_IMAGE);
+    imageService.generatePlayersListImage.mockResolvedValue(FAKE_IMAGE);
+    telegramService.sendPhoto.mockResolvedValue();
+});
+
+// ---------------------------------------------------------------------------
+// /help
+// ---------------------------------------------------------------------------
+
+describe('/help', () => {
+    it('returns help text listing all commands', async () => {
+        const result = await handleCommand(COMMANDS.HELP, 123, [], 'key');
+        expect(typeof result).toBe('string');
+        expect(result).toContain('/stats');
+        expect(result).toContain('/add_player');
+        expect(result).toContain('/remove_player');
+        expect(result).toContain('/players');
+        expect(result).toContain('/live');
+        expect(result).toContain('/help');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// /stats
+// ---------------------------------------------------------------------------
+
+describe('/stats', () => {
+    it('returns "no players" message when the chat has no tracked players', async () => {
+        storageService.getPlayers.mockResolvedValue([]);
+        const result = await handleCommand(COMMANDS.STATS, 123, [], 'key');
+        expect(result).toContain('No players tracked');
+    });
+
+    it('sends a photo and returns null when players and stats exist', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 's1mple' }]);
+        faceitService.getLeaderboardStats.mockResolvedValue([{ nickname: 's1mple', adr: 80 }]);
+
+        const result = await handleCommand(COMMANDS.STATS, 123, [], 'key');
+
+        expect(telegramService.sendPhoto).toHaveBeenCalledWith(123, FAKE_IMAGE);
+        expect(result).toBeNull();
+    });
+
+    it('passes the custom match count argument to the stats service', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 's1mple' }]);
+        faceitService.getLeaderboardStats.mockResolvedValue([{ nickname: 's1mple', adr: 80 }]);
+
+        await handleCommand(COMMANDS.STATS, 123, ['20'], 'key');
+
+        expect(faceitService.getLeaderboardStats).toHaveBeenCalledWith(
+            'key', expect.any(Array), 20
+        );
+    });
+
+    it('uses default count when argument is above 100', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 'p' }]);
+        faceitService.getLeaderboardStats.mockResolvedValue([{ nickname: 'p', adr: 50 }]);
+
+        await handleCommand(COMMANDS.STATS, 123, ['200'], 'key');
+
+        expect(faceitService.getLeaderboardStats).toHaveBeenCalledWith(
+            'key', expect.any(Array), 10
+        );
+    });
+
+    it('uses default count when argument is below 2', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 'p' }]);
+        faceitService.getLeaderboardStats.mockResolvedValue([{ nickname: 'p', adr: 50 }]);
+
+        await handleCommand(COMMANDS.STATS, 123, ['1'], 'key');
+
+        expect(faceitService.getLeaderboardStats).toHaveBeenCalledWith(
+            'key', expect.any(Array), 10
+        );
+    });
+
+    it('returns an error message when the leaderboard is empty', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 'p' }]);
+        faceitService.getLeaderboardStats.mockResolvedValue([]);
+
+        const result = await handleCommand(COMMANDS.STATS, 123, [], 'key');
+        expect(result).toContain('Failed to retrieve');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// /add_player
+// ---------------------------------------------------------------------------
+
+describe('/add_player', () => {
+    it('returns force_reply when no arguments are provided', async () => {
+        const result = await handleCommand(COMMANDS.ADD_PLAYER, 123, [], 'key');
+        expect(result.type).toBe('force_reply');
+        expect(result.placeholder).toBe('nickname');
+    });
+
+    it('returns an error when the player is not found on FACEIT', async () => {
+        faceitService.getPlayerDetailsByNickname.mockResolvedValue(null);
+
+        const result = await handleCommand(COMMANDS.ADD_PLAYER, 123, ['unknown_nick'], 'key');
+        expect(result).toContain('not found on FACEIT');
+        expect(result).toContain('unknown_nick');
+    });
+
+    it('adds the player and sends a photo on success', async () => {
+        faceitService.getPlayerDetailsByNickname.mockResolvedValue({
+            playerId: 'p1', nickname: 's1mple', elo: 3000, skillLevel: 10, avatar: null,
+        });
+        storageService.addPlayer.mockResolvedValue();
+        storageService.subscribeChat.mockResolvedValue();
+
+        const result = await handleCommand(COMMANDS.ADD_PLAYER, 123, ['s1mple'], 'key', 'MyChat');
+
+        expect(storageService.addPlayer).toHaveBeenCalledWith(
+            123, { id: 'p1', nickname: 's1mple' }, 'MyChat'
+        );
+        expect(storageService.subscribeChat).toHaveBeenCalledWith(123, 'p1', 's1mple');
+        expect(imageService.generatePlayerCard).toHaveBeenCalledWith(
+            expect.objectContaining({ nickname: 's1mple' }), 'added'
+        );
+        expect(telegramService.sendPhoto).toHaveBeenCalled();
+        expect(result).toBeNull();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// /remove_player
+// ---------------------------------------------------------------------------
+
+describe('/remove_player', () => {
+    it('returns force_reply when no arguments are provided', async () => {
+        const result = await handleCommand(COMMANDS.REMOVE_PLAYER, 123, [], 'key');
+        expect(result.type).toBe('force_reply');
+    });
+
+    it('returns an error when the player is not in the tracking list', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 'existing' }]);
+
+        const result = await handleCommand(COMMANDS.REMOVE_PLAYER, 123, ['nonexistent'], 'key');
+        expect(result).toContain('is not in the tracking list');
+        expect(result).toContain('nonexistent');
+    });
+
+    it('removes the player, unsubscribes, and sends a photo', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 's1mple' }]);
+        storageService.removePlayer.mockResolvedValue();
+        storageService.unsubscribeChat.mockResolvedValue();
+        faceitService.getPlayerDetails.mockResolvedValue({
+            playerId: 'p1', nickname: 's1mple', elo: 3000,
+        });
+
+        const result = await handleCommand(COMMANDS.REMOVE_PLAYER, 123, ['s1mple'], 'key');
+
+        expect(storageService.removePlayer).toHaveBeenCalledWith(123, 'p1');
+        expect(storageService.unsubscribeChat).toHaveBeenCalledWith(123, 'p1');
+        expect(telegramService.sendPhoto).toHaveBeenCalled();
+        expect(result).toBeNull();
+    });
+
+    it('matches nicknames case-insensitively', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 'S1mple' }]);
+        storageService.removePlayer.mockResolvedValue();
+        storageService.unsubscribeChat.mockResolvedValue();
+        faceitService.getPlayerDetails.mockResolvedValue({ playerId: 'p1', nickname: 'S1mple' });
+
+        const result = await handleCommand(COMMANDS.REMOVE_PLAYER, 123, ['s1MPLE'], 'key');
+
+        expect(storageService.removePlayer).toHaveBeenCalledWith(123, 'p1');
+        expect(result).toBeNull();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// /players
+// ---------------------------------------------------------------------------
+
+describe('/players', () => {
+    it('returns "no players" message when the chat has no tracked players', async () => {
+        storageService.getPlayers.mockResolvedValue([]);
+        const result = await handleCommand(COMMANDS.PLAYERS, 123, [], 'key');
+        expect(result).toContain('No players tracked');
+    });
+
+    it('sends a players-list image and returns null', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 's1mple' }]);
+        faceitService.getPlayerDetails.mockResolvedValue({
+            playerId: 'p1', nickname: 's1mple', elo: 3000, skillLevel: 10, avatar: null,
+        });
+
+        const result = await handleCommand(COMMANDS.PLAYERS, 123, [], 'key');
+
+        expect(imageService.generatePlayersListImage).toHaveBeenCalled();
+        expect(telegramService.sendPhoto).toHaveBeenCalled();
+        expect(result).toBeNull();
+    });
+
+    it('gracefully falls back when getPlayerDetails rejects', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 'err_player' }]);
+        faceitService.getPlayerDetails.mockRejectedValue(new Error('API down'));
+
+        // Should not throw — error is caught inside handlePlayers
+        await expect(handleCommand(COMMANDS.PLAYERS, 123, [], 'key')).resolves.toBeNull();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// /live
+// ---------------------------------------------------------------------------
+
+describe('/live', () => {
+    it('returns an error when WEBAPP_URL is not configured', async () => {
+        const savedUrl = config.webapp_url;
+        config.webapp_url = null;
+
+        storageService.getChatSubscriptions.mockResolvedValue([]);
+        const result = await handleCommand(COMMANDS.LIVE, 123, [], 'key');
+
+        config.webapp_url = savedUrl; // restore
+        expect(result).toContain('WEBAPP_URL');
+    });
+
+    it('returns a web_app result when WEBAPP_URL is set', async () => {
+        storageService.getChatSubscriptions.mockResolvedValue([]);
+
+        const result = await handleCommand(COMMANDS.LIVE, 123, [], 'key');
+
+        expect(result.type).toBe('web_app');
+        expect(result.url).toContain('chatId=123');
+    });
+
+    it('includes match list in text when active matches exist', async () => {
+        storageService.getChatSubscriptions.mockResolvedValue([{ playerId: 'p1' }]);
+        matchService.collectMatchIds.mockResolvedValue(['m1']);
+        matchService.fetchActiveMatchDetails.mockResolvedValue([{
+            matchId: 'm1',
+            match: {
+                status: 'ONGOING',
+                teams: { faction1: { name: 'Team A' }, faction2: { name: 'Team B' } },
+            },
+        }]);
+
+        const result = await handleCommand(COMMANDS.LIVE, 123, [], 'key');
+
+        expect(result.type).toBe('web_app');
+        expect(result.text).toContain('Team A');
+        expect(result.text).toContain('Team B');
+    });
+
+    it('shows "no active matches" when match list is empty', async () => {
+        storageService.getChatSubscriptions.mockResolvedValue([{ playerId: 'p1' }]);
+        matchService.collectMatchIds.mockResolvedValue([]);
+
+        const result = await handleCommand(COMMANDS.LIVE, 123, [], 'key');
+        expect(result.text).toContain('Нет активных матчей');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Unknown command
+// ---------------------------------------------------------------------------
+
+describe('unknown command', () => {
+    it('returns null for an unrecognised command string', async () => {
+        const result = await handleCommand('/i_do_not_exist', 123, [], 'key');
+        expect(result).toBeNull();
+    });
+});

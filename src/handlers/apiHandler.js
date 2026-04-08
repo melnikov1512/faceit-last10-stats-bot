@@ -229,4 +229,4 @@ async function getMatch(req, res) {
     }
 }
 
-module.exports = { getActiveMatches, getMatch };
+module.exports = { getActiveMatches, getMatch, processMatchStats };

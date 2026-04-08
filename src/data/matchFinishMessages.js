@@ -2,6 +2,10 @@
  * Message pools for match finish notifications (<2000 ELO players).
  * Placeholders: {nick}, {elo}, {left}, {games}
  */
+
+/** Average ELO gain per win — used to estimate wins needed to reach level 10 */
+const ELO_PER_WIN = 25;
+
 const FUNNY_MESSAGES = [
     '{nick}, {elo} эло. Серьёзно? Даже мой дед бы постеснялся показывать такое эло. ~{games} побед до 10-го уровня, давай хоть пробуй.',
     'О, {nick} сыграл. {elo} эло. Боже, это вообще легально — так играть? До 10-го уровня ~{games} побед. Может, доживёшь.',
