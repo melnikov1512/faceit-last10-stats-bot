@@ -18,7 +18,7 @@ const COMMAND_LIST = [
     {
         key:         'ADD_PLAYER',
         command:     '/add_player',
-        args:        '&lt;nickname&gt;',
+        args:        '<nickname>',
         description: 'Добавить игрока в список (включает уведомления о матчах)',
         prompt:      'Введите никнейм игрока для добавления:',
         placeholder: 'nickname',
@@ -26,7 +26,7 @@ const COMMAND_LIST = [
     {
         key:         'REMOVE_PLAYER',
         command:     '/remove_player',
-        args:        '&lt;nickname&gt;',
+        args:        '<nickname>',
         description: 'Удалить игрока из списка (отключает уведомления)',
         prompt:      'Введите никнейм игрока для удаления:',
         placeholder: 'nickname',

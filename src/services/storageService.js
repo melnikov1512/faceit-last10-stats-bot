@@ -202,36 +202,6 @@ async function markFinishNotificationSentForChat(matchId, chatId, playerIds = []
 }
 
 /**
- * Check if a per-player finish notification was already sent.
- * @param {string} matchId
- * @param {string} chatId
- * @param {string} playerId
- * @returns {Promise<boolean>}
- */
-async function hasFinishNotificationBeenSent(matchId, chatId, playerId) {
-    const docId = `${matchId}_${chatId}_${playerId}_finish`;
-    const doc   = await sentMatchNotificationsCollection.doc(docId).get();
-    return doc.exists;
-}
-
-/**
- * Mark a per-player finish notification as sent.
- * @param {string} matchId
- * @param {string} chatId
- * @param {string} playerId
- */
-async function markFinishNotificationSent(matchId, chatId, playerId) {
-    const docId = `${matchId}_${chatId}_${playerId}_finish`;
-    await sentMatchNotificationsCollection.doc(docId).set({
-        matchId,
-        chatId: chatId.toString(),
-        playerId,
-        type: 'finish',
-        sentAt: Firestore.Timestamp.now(),
-    });
-}
-
-/**
  * Find recent match IDs from sent_match_notifications where any of the given playerIds were involved.
  * Searches across all chats (not filtered by chatId).
  * Time filtering is done in memory to avoid requiring a composite Firestore index.
@@ -304,6 +274,7 @@ async function removeActiveMatch(chatId, matchId) {
     const docId = `${chatId}_${matchId}`;
     await activeMatchesCollection.doc(docId).delete();
 }
+
 module.exports = {
     addPlayer,
     removePlayer,
@@ -318,8 +289,6 @@ module.exports = {
     markNotificationSent,
     hasFinishNotificationBeenSentForChat,
     markFinishNotificationSentForChat,
-    hasFinishNotificationBeenSent,
-    markFinishNotificationSent,
     getRecentMatchIdsForPlayers,
     // Active matches tracking
     storeActiveMatch,

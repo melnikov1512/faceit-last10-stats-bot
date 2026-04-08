@@ -13,60 +13,6 @@ function forceReply(commandKey) {
     return { type: 'force_reply', prompt: cmd.prompt, placeholder: cmd.placeholder };
 }
 
-function formatStatsMessage(leaderboard, requestedMatchesCount) {
-    if (!leaderboard || leaderboard.length === 0) {
-        return 'Failed to retrieve stats for any player.';
-    }
-
-    // Separator: single "|" (no spaces) — saves 2 chars per column vs " | "
-    //
-    // Fixed columns (each 4 chars) + 5 separators:
-    //   ADR(4) | K/D(4) | Kill(4) | ELO(4) | ±ELO(4)  +  5×| = 25 chars
-    //
-    // Target row width: 40 chars  →  Name gets 40 − 25 = 15 chars max.
-    // nameColWidth is dynamic: capped at min(longestName, 15) so short-name
-    // lists produce even narrower rows.
-
-    const COL = 4;           // every data column is exactly 4 chars
-    const SEP = '|';         // single-char separator
-    const NUM_SEPS = 5;      // separators between 6 columns
-    const MAX_WIDTH = 40;
-    const FIXED = NUM_SEPS + COL * 5; // 5 + 20 = 25
-
-    const longestName  = leaderboard.reduce((max, p) => Math.max(max, p.nickname.length), 0);
-    const nameW = Math.max(4, Math.min(longestName, MAX_WIDTH - FIXED)); // max 15
-
-    const titleCount = requestedMatchesCount || leaderboard[0].matchesAnalyzed || 10;
-    let table = '';
-
-    // ── header ──────────────────────────────────────────────
-    const h = (s) => s.padStart(COL);
-    table += `${'Name'.padEnd(nameW)}${SEP}${h('ADR')}${SEP}${h('K/D')}${SEP}${h('Kill')}${SEP}${h('ELO')}${SEP}${h('±ELO')}\n`;
-    const dash = '-'.repeat(COL);
-    table += `${'-'.repeat(nameW)}${SEP}${dash}${SEP}${dash}${SEP}${dash}${SEP}${dash}${SEP}${dash}\n`;
-
-    // ── rows ─────────────────────────────────────────────────
-    leaderboard.forEach(player => {
-        let name = player.nickname;
-        if (name.length > nameW) name = name.substring(0, nameW);
-        name = name.padEnd(nameW);
-
-        const adr  = parseFloat(player.average_damage_per_round).toFixed(1).padStart(COL);
-        const kd   = player.kills_deaths_ratio.toString().padStart(COL);
-        const kill = parseFloat(player.average_kills).toFixed(1).padStart(COL);
-        const elo  = player.current_elo != null
-            ? player.current_elo.toString().padStart(COL)
-            : ' N/A';
-        const chg  = player.elo_change != null
-            ? `${player.elo_change >= 0 ? '+' : ''}${player.elo_change}`.padStart(COL)
-            : ' N/A';
-
-        table += `${escapeHtml(name)}${SEP}${adr}${SEP}${kd}${SEP}${kill}${SEP}${elo}${SEP}${chg}\n`;
-    });
-
-    return `<b>📊 FACEIT Last ${titleCount} Matches Stats</b>\n\n<pre>${table}</pre>`;
-}
-
 async function handleStats(chatId, args, apiKey) {
     const players = await storageService.getPlayers(chatId);
 
@@ -169,7 +115,7 @@ async function handleRemovePlayer(chatId, args, apiKey) {
 function handleHelp() {
     const lines = COMMAND_LIST.map(c => {
         const usage = c.args
-            ? `<code>${c.command} ${c.args}</code>`
+            ? `<code>${c.command} ${escapeHtml(c.args)}</code>`
             : `<code>${c.command}</code>`;
         return `• ${usage} — ${c.description}`;
     });
@@ -208,6 +154,7 @@ async function handleLive(chatId) {
         }
     } catch (e) {
         // non-critical — just omit the list
+        console.warn('[handleLive] Failed to fetch active matches for caption:', e.message);
     }
 
     return {

@@ -68,7 +68,6 @@ async function handleWebhook(req, res) {
         const chatName = message.chat.title ||
             [message.chat.first_name, message.chat.last_name].filter(Boolean).join(' ') ||
             null;
-        const chatType = message.chat.type;
 
         const result = await handleCommand(command, chatId, args, apiKey, chatName);
 
@@ -141,7 +140,7 @@ async function handleWebhook(req, res) {
         const replyPayload = {
             method: 'sendMessage',
             chat_id: chatId,
-            text: `⚠️ Error processing request: ${error.message || 'Please try again later.'}`
+            text: '⚠️ Произошла ошибка. Попробуйте позже.'
         };
         res.json(replyPayload);
     }

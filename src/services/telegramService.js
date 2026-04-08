@@ -64,6 +64,7 @@ async function sendMessage(chatId, text, replyMarkup = null, options = {}) {
         await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, payload);
     } catch (error) {
         console.error(`Failed to send Telegram message to chat ${chatId}:`, error.message);
+        throw error;
     }
 }
 

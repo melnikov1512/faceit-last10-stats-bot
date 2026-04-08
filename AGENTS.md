@@ -49,7 +49,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **Output**: Sorted by ADR descending. Formatted as an HTML-escaped table: `Name | ADR | K/D | Kills | ELO | ±ELO`.
     - **Active Match API**: `enrichMatchWithRosterElos(apiKey, match)` — adds `faceit_elo` and `skill_level` to every roster player. Single-match lookup is handled by `GET /api/match` in `apiHandler.js`.
     - **Additional exports used externally**: `getMatchStats(apiKey, matchId)` — fetches raw match stats `{ rounds: [...] }` from `GET /matches/{id}/stats`; returns `null` for ongoing matches (404). `extractPlayerMatchStats(matchStats, playerId)` — extracts a single player's stats from the raw stats response (returns `{ kills, deaths, assists, kd, adr, hsPercent, result, map }`). `getLastMatchEloChange(playerId)` — returns the ELO delta for the player's most recent match from the unofficial timeline. All three are used by `subscriptionService.js` and/or `apiHandler.js`.
-    - **Axios client**: Single module-level instance (`getApiClient`) — created once and reused across all FACEIT API calls.
+    - **Axios client**: Single module-level instance (`getApiClient`) — created once and reused across all FACEIT API calls. Configured with `timeout: 15000` ms.
 - **Web App**: `public/index.html`. Telegram Mini App that displays active matches for subscribed players in a chat.
     - Served at `GET /app` (static middleware from `public/`). Not at root `/`.
     - Reads `?chatId=` and optional `?matchId=` URL params (or Telegram `start_param` `{chatId}_{matchId}`).
@@ -158,7 +158,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/services/imageService.js`: Generates FACEIT-styled PNGs using `@napi-rs/canvas`. See Image Module section for full export list.
 - `src/services/storageService.js`: Firestore database operations (players, subscriptions, deduplication).
 - `src/services/subscriptionService.js`: Match-start and match-finish event handling and notification dispatch. `handleMatchEvent` for start, `handleMatchFinishedEvent` for finish (aggregated per-chat image via `generateMatchResultsSummaryImage`).
-- `src/data/matchFinishMessages.js`: **Message pools for finish notifications.** 30 funny messages for <2000 ELO players (`getRandomFunnyMessage(nickname, currentElo)`). Includes estimated wins to level 10 (ELO left / 25). Also exports `getExamplePlayersText(nicknames)` — 10 P.S. lines referencing ≥2000 ELO players in the same match (currently exported but not called by `subscriptionService.js`).
+- `src/data/matchFinishMessages.js`: **Message pools for finish notifications.** 30 funny messages for <2000 ELO players (`getRandomFunnyMessage(nickname, currentElo)`). Includes estimated wins to level 10 (ELO left / 25).
 - `src/services/telegramService.js`: Telegram Bot API integration for push notifications. `sendMessage(chatId, text, replyMarkup?)` supports optional inline keyboards. `sendPhoto(chatId, imageBuffer, caption?)` sends a PNG via multipart/form-data. Also exports `fetchBotUsername()` and `setMyCommands()` (both called at startup from `index.js`).
 - `src/config.js`: Configuration loader (env vars + config.json).
 - `src/commands.js`: **Единый реестр команд.** Экспортирует `COMMAND_LIST` (полные описания), `COMMANDS` (словарь строк), `BOT_COMMANDS` (для `setMyCommands` API). Единственное место для добавления новых команд.

@@ -36,25 +36,6 @@ const FUNNY_MESSAGES = [
 ];
 
 /**
- * Message templates for the "take example" P.S. line.
- * Placeholder: {nicks} (comma-separated list of nicknames ≥2000 ELO)
- */
-const EXAMPLE_MESSAGES = [
-    'P.S. {nicks} в том же матче и выше 2000 эло. Может, попросить объяснить, как это работает?',
-    'P.S. Кстати, {nicks} — 10-й уровень. Они тоже люди. Теоретически у тебя тоже шанс есть.',
-    'P.S. {nicks} выше 2000 и играли рядом с тобой. Это больно осознавать, но полезно.',
-    'P.S. В этом же матче {nicks} с нормальным эло. Смотри и учись. Лучше смотри.',
-    'P.S. {nicks} — 10-й уровень. Ты — нет. Эта разница называется «скилл». Обидно, но факт.',
-    'P.S. {nicks} выше 2000 эло. В том же матче. Задумайся. Просто задумайся.',
-    'P.S. Рядом играл(и) {nicks} с 10-м уровнем. Вдохновляйся. Или завидуй. Главное — улучшайся.',
-    'P.S. {nicks} уже на 10-м уровне и, скорее всего, не страдают. Завидуй молча и тренируйся.',
-    'P.S. {nicks} выше 2000 эло. Они тоже начинали снизу. Правда, давно уже оттуда ушли.',
-    'P.S. В том же матче {nicks} держат 10-й уровень. Ты держишься ниже 2000. Разницу чувствуешь?',
-];
-
-const ELO_PER_WIN = 25;
-
-/**
  * Returns a random funny message for a player below 2000 ELO.
  * @param {string} nickname
  * @param {number} currentElo
@@ -65,21 +46,10 @@ function getRandomFunnyMessage(nickname, currentElo) {
     const games   = Math.ceil(eloLeft / ELO_PER_WIN);
     const template = FUNNY_MESSAGES[Math.floor(Math.random() * FUNNY_MESSAGES.length)];
     return template
-        .replace(/\{nick\}/g,  nickname)
-        .replace(/\{elo\}/g,   String(currentElo))
-        .replace(/\{left\}/g,  String(eloLeft))
-        .replace(/\{games\}/g, String(games));
+        .replace(/\{nick}/g,  nickname)
+        .replace(/\{elo}/g,   String(currentElo))
+        .replace(/\{left}/g,  String(eloLeft))
+        .replace(/\{games}/g, String(games));
 }
 
-/**
- * Returns a random "take example" P.S. line for players ≥2000 ELO in the same match.
- * @param {string[]} nicknames
- * @returns {string}
- */
-function getExamplePlayersText(nicknames) {
-    const nicks    = nicknames.join(' и ');
-    const template = EXAMPLE_MESSAGES[Math.floor(Math.random() * EXAMPLE_MESSAGES.length)];
-    return template.replace(/\{nicks\}/g, nicks);
-}
-
-module.exports = { getRandomFunnyMessage, getExamplePlayersText };
+module.exports = { getRandomFunnyMessage };

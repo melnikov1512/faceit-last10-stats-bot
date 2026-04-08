@@ -5,6 +5,11 @@ const BASE_URL       = 'https://open.faceit.com/data/v4';
 const STATS_BASE_URL = 'https://api.faceit.com/stats/v1';
 const GAME = 'cs2';
 
+// Wide time range for ELO timeline queries — known to work (from FACEIT Discord community).
+// from: 2020-11-06 (CS2/CSGO FACEIT era start), to: ~2040 (far future)
+const ELO_TIMELINE_FROM_TS = 1604676605000;
+const ELO_TIMELINE_TO_TS   = 2235828605000;
+
 /**
  * Helper to process items in chunks to avoid hitting API rate limits
  */
@@ -26,6 +31,7 @@ function getApiClient(apiKey) {
         _apiClient = axios.create({
             baseURL: BASE_URL,
             headers: { 'Authorization': `Bearer ${apiKey}` },
+            timeout: 15000,
         });
     }
     return _apiClient;
@@ -95,8 +101,8 @@ async function getPlayerEloTimeline(playerId, limit) {
         const params = new URLSearchParams({
             size: limit,
             page: 0,
-            from: 1604676605000,
-            to:   2235828605000,
+            from: ELO_TIMELINE_FROM_TS,
+            to:   ELO_TIMELINE_TO_TS,
         });
         const url = `${STATS_BASE_URL}/stats/time/users/${playerId}/games/${GAME}?${params}`;
 
@@ -241,20 +247,6 @@ async function getLeaderboardStats(apiKey, players, limit = 10) {
 
     // Sort by ADR descending
     return leaderboard.sort((a, b) => b.average_damage_per_round - a.average_damage_per_round);
-}
-
-/**
- * Get a player's FACEIT player_id by nickname
- * @param {string} apiKey
- * @param {string} nickname
- * @returns {Promise<{playerId: string, nickname: string}|null>}
- */
-async function getPlayerIdByNickname(apiKey, nickname) {
-    if (!apiKey) return null;
-    const apiClient = getApiClient(apiKey);
-    const info = await getPlayerInfo(apiClient, nickname);
-    if (!info) return null;
-    return { playerId: info.player_id, nickname: info.nickname };
 }
 
 /**
@@ -423,7 +415,6 @@ async function enrichMatchWithRosterElos(apiKey, match) {
 
 module.exports = {
     getLeaderboardStats,
-    getPlayerIdByNickname,
     getPlayerDetails,
     getPlayerDetailsByNickname,
     getMatchDetails,

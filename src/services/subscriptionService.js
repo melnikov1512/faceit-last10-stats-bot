@@ -99,8 +99,8 @@ async function handleMatchEvent(payload) {
 
         const imageBuffer = await generateMatchImage(matchInfo);
 
-        // Caption: bold nicknames, no icons, HTML parse mode
-        const boldNames = nicknames.map(n => `<b>${n}</b>`);
+        // Caption: bold escaped nicknames, HTML parse mode
+        const boldNames = nicknames.map(n => `<b>${escapeHtml(n)}</b>`);
         const verb      = nicknames.length === 1 ? 'начал матч' : 'начали матч';
         const caption   = boldNames.join(' и ') + ' ' + verb;
 

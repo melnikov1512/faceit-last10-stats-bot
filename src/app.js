@@ -6,7 +6,7 @@ const { getActiveMatches, getMatch } = require('./handlers/apiHandler');
 
 const app = express();
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 // Serve the web app at /app
 app.use('/app', express.static(path.join(__dirname, '..', 'public')));
