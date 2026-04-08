@@ -208,15 +208,33 @@
         }
 
         .vs-team-name {
+            display: flex;
+            align-items: center;
+            gap: 6px;
             font-size: 16px;
             font-weight: 700;
             color: var(--text);
+            min-width: 0;
+            overflow: hidden;
+        }
+
+        .vs-team-name span {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
 
-        .vs-team-name.right { text-align: right; }
+        .vs-team-name.right { flex-direction: row-reverse; }
+
+        .team-avatar {
+            width: 28px; height: 28px;
+            border-radius: 50%;
+            background: var(--card2);
+            font-size: 11px; font-weight: 700;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; color: var(--text-sub);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
 
         /* Row 2: elo | score | elo */
         .vs-bottom {
@@ -257,7 +275,11 @@
             text-align: center;
         }
 
-        .vs-score-num.winner { color: rgb(50, 211, 90); }
+        .vs-score-num.winner {
+            color: rgb(50, 211, 90);
+            font-size: 36px;
+            text-shadow: 0 0 16px rgba(50, 211, 90, 0.35);
+        }
 
         .vs-score-sep {
             font-size: 20px;
@@ -389,24 +411,33 @@
             font-weight: 500;
         }
 
-        /* ── Skill level badge ── */
-        .skill-badge {
+        /* ── Skill level bar (10 segments) ── */
+        .skill-bar {
             display: inline-flex;
             align-items: center;
-            justify-content: center;
-            width: 22px; height: 22px;
-            border-radius: 5px;
-            font-size: 12px;
-            font-weight: 800;
+            gap: 3px;
             flex-shrink: 0;
-            line-height: 1;
         }
-
-        .sl-1,.sl-2,.sl-3   { background: #3D3D3D; color: #AAAAAA; }
-        .sl-4,.sl-5,.sl-6   { background: rgba(95,186,83,0.2);  color: #5FBA53; }
-        .sl-7,.sl-8         { background: rgba(255,196,0,0.2);  color: #FFC400; }
-        .sl-9               { background: rgba(255,85,0,0.25);  color: #FF8500; }
-        .sl-10              { background: rgba(255,85,0,0.3);   color: #FF5500; }
+        .skill-bar-segs { display: flex; gap: 2px; }
+        .skill-bar-segs .seg {
+            width: 5px; height: 10px;
+            border-radius: 2px;
+            background: rgba(255,255,255,0.1);
+        }
+        .skill-bar.sl-1 .seg.filled,
+        .skill-bar.sl-2 .seg.filled,
+        .skill-bar.sl-3 .seg.filled { background: #888; }
+        .skill-bar.sl-4 .seg.filled,
+        .skill-bar.sl-5 .seg.filled,
+        .skill-bar.sl-6 .seg.filled { background: #5FBA53; }
+        .skill-bar.sl-7 .seg.filled,
+        .skill-bar.sl-8 .seg.filled { background: #FFC400; }
+        .skill-bar.sl-9 .seg.filled  { background: #FF8500; }
+        .skill-bar.sl-10 .seg.filled { background: #FF5500; }
+        .skill-bar-num {
+            font-size: 11px; font-weight: 700;
+            color: var(--text-sub); min-width: 10px;
+        }
 
         /* ── Tracked badge ── */
         .tracked-dot {
@@ -561,6 +592,33 @@
             from { opacity: 0; }
             to   { opacity: 1; }
         }
+
+        /* ── Win Probability bar ── */
+        .win-prob-bar {
+            width: 100%; height: 4px;
+            border-radius: 2px;
+            background: rgba(255,255,255,0.12);
+            overflow: hidden;
+            margin: 4px 0 2px;
+        }
+        .wpr-fill { height: 100%; background: var(--orange); border-radius: 2px; }
+        .win-prob-labels {
+            display: flex; justify-content: space-between;
+            font-size: 12px; font-weight: 600;
+            color: var(--text-sub); width: 100%;
+        }
+
+        /* ── Mobile compact (< 360px) ── */
+        @media (max-width: 359px) {
+            .player-avatar, .player-avatar-placeholder { width: 30px; height: 30px; }
+            .player-row { gap: 7px; padding: 7px 10px; }
+            .player-nick { font-size: 12px; }
+            .player-elo-val { font-size: 11px; }
+            .skill-bar-segs .seg { width: 4px; height: 8px; }
+            .vs-score-num { font-size: 26px; }
+            .vs-score-num.winner { font-size: 32px; text-shadow: none; }
+            .vs-team-name span { font-size: 13px; }
+        }
     </style>
 </head>
 <body>
@@ -678,9 +736,31 @@
             return stripped.charAt(0).toUpperCase() + stripped.slice(1);
         }
 
-        function skillClass(level) {
+        function calcAvgElo(team) {
+            const elos = (team.roster || [])
+                .map(p => parseInt(p.faceit_elo))
+                .filter(e => !isNaN(e) && e > 0);
+            return elos.length ? Math.round(elos.reduce((a, b) => a + b, 0) / elos.length) : null;
+        }
+
+        function calcWinProb(eloA, eloB) {
+            if (!eloA || !eloB) return null;
+            const p = Math.round(100 / (1 + Math.pow(10, (eloB - eloA) / 400)));
+            return { p1: p, p2: 100 - p };
+        }
+
+        function teamInitials(name) {
+            return (name || '?').split(/[\s_-]+/).slice(0, 2)
+                .map(w => w[0]?.toUpperCase() || '').join('');
+        }
+
+        function renderSkillBar(level) {
             const l = parseInt(level);
-            return l ? `sl-${l}` : '';
+            if (!l) return '';
+            const segs = Array.from({length: 10}, (_, i) =>
+                `<span class="seg${i < l ? ' filled' : ''}"></span>`
+            ).join('');
+            return `<div class="skill-bar sl-${l}" role="img" aria-label="Skill level ${l} of 10"><div class="skill-bar-segs">${segs}</div><span class="skill-bar-num" aria-hidden="true">${l}</span></div>`;
         }
 
         function statusLabel(status) {
@@ -722,7 +802,7 @@
             const nickClass = player.isTracked ? 'player-nick tracked' : 'player-nick';
             const elo = player.faceit_elo || '—';
             const sl = player.skill_level;
-            const badge = sl ? `<span class="skill-badge ${skillClass(sl)}">${sl}</span>` : '';
+            const badge = sl ? renderSkillBar(sl) : '';
             const trackedDot = player.isTracked ? `<span class="tracked-dot"></span>` : '';
             return `
                 <div class="player-row${player.isTracked ? ' tracked' : ''}">
@@ -741,8 +821,10 @@
         function renderVsSection(match) {
             const f1 = match.teams.faction1;
             const f2 = match.teams.faction2;
-            const avg1 = f1.stats?.rating ? `Avg. ${f1.stats.rating}` : '';
-            const avg2 = f2.stats?.rating ? `Avg. ${f2.stats.rating}` : '';
+            const a1 = f1.stats?.rating || calcAvgElo(f1);
+            const a2 = f2.stats?.rating || calcAvgElo(f2);
+            const avg1 = a1 ? `Avg. ${a1}` : '';
+            const avg2 = a2 ? `Avg. ${a2}` : '';
 
             let centerContent;
             if (match.results?.score) {
@@ -757,14 +839,33 @@
                         <span class="vs-score-num${c2}">${s.faction2 ?? '–'}</span>
                     </div>`;
             } else {
-                centerContent = `<span class="vs-label">VS</span>`;
+                const wp = (a1 && a2) ? calcWinProb(a1, a2) : null;
+                if (wp) {
+                    centerContent = `
+                        <div class="win-prob-bar">
+                            <div class="wpr-fill" style="width:${wp.p1}%"></div>
+                        </div>
+                        <div class="win-prob-labels">
+                            <span>${wp.p1}%</span>
+                            <span class="vs-label">WIN PROB</span>
+                            <span>${wp.p2}%</span>
+                        </div>`;
+                } else {
+                    centerContent = `<span class="vs-label">VS</span>`;
+                }
             }
 
             return `
                 <div class="vs-section">
                     <div class="vs-names">
-                        <div class="vs-team-name">${escHtml(f1.name || 'Faction 1')}</div>
-                        <div class="vs-team-name right">${escHtml(f2.name || 'Faction 2')}</div>
+                        <div class="vs-team-name">
+                            <div class="team-avatar" aria-hidden="true">${teamInitials(f1.name)}</div>
+                            <span>${escHtml(f1.name || 'Faction 1')}</span>
+                        </div>
+                        <div class="vs-team-name right">
+                            <div class="team-avatar" aria-hidden="true">${teamInitials(f2.name)}</div>
+                            <span>${escHtml(f2.name || 'Faction 2')}</span>
+                        </div>
                     </div>
                     <div class="vs-bottom">
                         <div class="vs-team-elo">${avg1}</div>
@@ -858,6 +959,7 @@
 
             const metaParts = [
                 mapName,
+                '5v5',
                 match.region,
                 match.best_of ? `BO${match.best_of}` : null,
             ].filter(Boolean);
