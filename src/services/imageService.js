@@ -8,17 +8,21 @@ GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'Inter-Regular.woff2'), 'Inter
 GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'Inter-Bold.woff2'),    'Inter');
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
+// Palette is aligned with the web app (public/index.html) CSS variables:
+// --bg:#121212  --card:#1E1E1E  --card2:#2A2A2A  --divider:rgba(255,255,255,0.07)
 const COLOR = {
-    bg:        '#1F1F1F',
-    headerBg:  '#242424',
-    rowAlt:    '#252525',
-    accent:    '#FF5500',
-    text:      '#FFFFFF',
-    subtext:   '#9A9A9A',
-    positive:  '#54C26A',
-    negative:  '#F44545',
-    separator: '#2E2E2E',
-    avatarBg:  '#333333',
+    pageBg:    '#121212',                   // inter-card gap / page background
+    bg:        '#1E1E1E',                   // card surface  (--card)
+    headerBg:  '#2A2A2A',                   // elevated sections: header, footer, player-card bg (--card2)
+    rowAlt:    '#252525',                   // subtle alternating row tint
+    accent:    '#FF5500',                   // brand orange  (--orange)
+    text:      '#FFFFFF',                   // primary text  (--text)
+    subtext:   '#9E9E9E',                   // secondary text (--text-sub)
+    positive:  '#52BC6A',                   // win / ELO up  (--green)
+    negative:  '#FF5757',                   // lose / ELO down (--red)
+    separator: 'rgba(255,255,255,0.07)',    // hairline dividers (--divider)
+    avatarBg:  '#2A2A2A',                   // avatar placeholder background
+    trackedBg: 'rgba(255,85,0,0.06)',       // tracked-player row tint (matches web app)
 };
 
 // ── Typography ────────────────────────────────────────────────────────────────
@@ -116,7 +120,11 @@ function drawAvatarPlaceholder(ctx, letter, cx, cy, r) {
 // ── Section renderers ─────────────────────────────────────────────────────────
 
 function drawHeader(ctx, matchesCount) {
-    ctx.fillStyle = COLOR.headerBg;
+    // Subtle gradient: header transitions from slightly lighter top to card surface
+    const headerGrad = ctx.createLinearGradient(0, 0, 0, HEADER_H);
+    headerGrad.addColorStop(0, COLOR.headerBg);
+    headerGrad.addColorStop(1, '#222222');
+    ctx.fillStyle = headerGrad;
     ctx.fillRect(0, 0, WIDTH, HEADER_H);
 
     ctx.fillStyle = COLOR.accent;
@@ -271,12 +279,12 @@ function drawTeamBlock(ctx, team, y) {
     const { WIDTH: W, PADDING: P, TEAM_H, BADGE_R } = MATCH;
     const hasTracked = team.trackedPlayers.length > 0;
 
-    ctx.fillStyle = hasTracked ? '#272727' : COLOR.bg;
+    ctx.fillStyle = hasTracked ? COLOR.trackedBg : COLOR.bg;
     ctx.fillRect(0, y, W, TEAM_H);
 
     if (hasTracked) {
         ctx.fillStyle = COLOR.accent;
-        ctx.fillRect(0, y, 3, TEAM_H);
+        ctx.fillRect(0, y, 2, TEAM_H);
     }
 
     ctx.fillStyle = COLOR.separator;
@@ -310,7 +318,7 @@ function drawTeamBlock(ctx, team, y) {
         const pillH    = 26;
         const pillX    = rightX - pillW;
         const pillY    = y + TEAM_H / 2 - pillH / 2;
-        const pillColor = hasTracked ? COLOR.accent : '#353535';
+        const pillColor = hasTracked ? COLOR.accent : 'rgba(255,255,255,0.08)';
 
         roundRect(ctx, pillX, pillY, pillW, pillH, BADGE_R);
         ctx.fillStyle = pillColor;
@@ -353,7 +361,10 @@ async function generateMatchImage(matchInfo) {
     ctx.fillRect(0, 0, W, HEIGHT);
 
     // ── Header ────────────────────────────────────────────────────────────────
-    ctx.fillStyle = COLOR.headerBg;
+    const matchHdrGrad = ctx.createLinearGradient(0, 0, 0, ACCENT_H + HEADER_H);
+    matchHdrGrad.addColorStop(0, COLOR.headerBg);
+    matchHdrGrad.addColorStop(1, '#222222');
+    ctx.fillStyle = matchHdrGrad;
     ctx.fillRect(0, 0, W, ACCENT_H + HEADER_H);
 
     ctx.fillStyle = COLOR.accent;
@@ -402,18 +413,19 @@ async function generateMatchImage(matchInfo) {
 }
 
 // ── FACEIT skill level colours ────────────────────────────────────────────────
-// Accurate level colours matching the FACEIT reference design
+// Colours match the web app's skill-bar segments exactly:
+//   sl-1…3 → grey  sl-4…6 → green  sl-7…8 → gold  sl-9 → orange  sl-10 → brand orange
 const SKILL_COLOR = {
-    1:  '#6B6B6B',
-    2:  '#5B8A5B',
-    3:  '#1CE400',
-    4:  '#C8D800',
-    5:  '#FFD800',
-    6:  '#FFD800',
-    7:  '#FF9000',
-    8:  '#FF6500',
-    9:  '#FF3D00',
-    10: '#FF1744',
+    1:  '#888888',
+    2:  '#888888',
+    3:  '#888888',
+    4:  '#5FBA53',
+    5:  '#5FBA53',
+    6:  '#5FBA53',
+    7:  '#FFC400',
+    8:  '#FFC400',
+    9:  '#FF8500',
+    10: '#FF5500',
 };
 
 const DEG = Math.PI / 180;
@@ -441,7 +453,7 @@ function drawSkillBadge(ctx, level, cx, cy, r) {
     // Dark background circle
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = '#1A1A1A';
+    ctx.fillStyle = '#161616';
     ctx.fill();
 
     // Coloured arc — gap at bottom centre (60°→120°, clockwise = 300° arc)
@@ -570,7 +582,10 @@ async function generatePlayersListImage(players) {
     ctx.fillRect(0, 0, W, HEIGHT);
 
     // ── Header ────────────────────────────────────────────────────────────────
-    ctx.fillStyle = COLOR.headerBg;
+    const listHdrGrad = ctx.createLinearGradient(0, 0, 0, ACCENT_H + HEADER_H);
+    listHdrGrad.addColorStop(0, COLOR.headerBg);
+    listHdrGrad.addColorStop(1, '#222222');
+    ctx.fillStyle = listHdrGrad;
     ctx.fillRect(0, 0, W, ACCENT_H + HEADER_H);
 
     ctx.fillStyle = COLOR.accent;
@@ -717,7 +732,10 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
     ctx.fillRect(0, Y, W, ACCENT_H);
 
     // ── Header ─────────────────────────────────────────────────────────────────
-    ctx.fillStyle = COLOR.headerBg;
+    const resHdrGrad = ctx.createLinearGradient(0, Y + ACCENT_H, 0, Y + ACCENT_H + HEADER_H);
+    resHdrGrad.addColorStop(0, COLOR.headerBg);
+    resHdrGrad.addColorStop(1, '#222222');
+    ctx.fillStyle = resHdrGrad;
     ctx.fillRect(0, Y + ACCENT_H, W, HEADER_H);
 
     ctx.fillStyle = COLOR.text;
@@ -892,7 +910,8 @@ async function generateMatchResultsSummaryImage(playersData) {
     const canvas = createCanvas(W, totalHeight);
     const ctx    = canvas.getContext('2d');
 
-    ctx.fillStyle = COLOR.bg;
+    // Page-level background fills gaps between stacked cards (#121212 = --bg from web app)
+    ctx.fillStyle = COLOR.pageBg;
     ctx.fillRect(0, 0, W, totalHeight);
 
     for (let i = 0; i < playersData.length; i++) {
