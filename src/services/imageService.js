@@ -653,7 +653,7 @@ async function generatePlayersListImage(players) {
     return canvas.toBuffer('image/png');
 }
 
-// ── Match result image (finish notification for <2000 ELO players) ─────────────
+// ── Match result image (finish notification) ──────────────────────────────────
 
 const RESULT_CARD = {
     WIDTH:    540,
@@ -667,31 +667,35 @@ const RESULT_CARD = {
     BADGE_R:  16,
 };
 
+// Pre-computed card height — used by both public functions
+const RESULT_CARD_H = (() => {
+    const { ACCENT_H, HEADER_H, PLAYER_H, STATS_H, FOOTER_H } = RESULT_CARD;
+    return ACCENT_H + HEADER_H + PLAYER_H + 1 + STATS_H + FOOTER_H;
+})();
+
 /**
- * Generates a single-player match result card as a PNG buffer.
- * @param {{
- *   nickname:   string,
- *   avatar_url: string|null,
- *   skillLevel: number|null,
- *   currentElo: number|null,
- *   eloChange:  number|null,
- *   kills:      number,
- *   deaths:     number,
- *   assists:    number,
- *   kd:         number,
- *   adr:        number,
- *   hsPercent:  number,
- *   result:     number,   // 1 = win, 0 = loss
- *   competition: string|null,
- *   map:        string|null,
- * }} data
- * @returns {Promise<Buffer>}
+ * Safely load an avatar image; returns null on any error.
+ * @param {string|null} url
+ * @returns {Promise<Image|null>}
  */
-async function generateMatchResultImage(data) {
+async function _loadAvatar(url) {
+    if (!url) return null;
+    try { return await loadImage(url); } catch { return null; }
+}
+
+/**
+ * Draws a single match result card onto `ctx` starting at `offsetY`.
+ * Pure drawing function — does NOT load the avatar (pass pre-loaded image or null).
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {object} data  — same shape as generateMatchResultImage parameter
+ * @param {number} offsetY  — Y coordinate where the card top begins
+ * @param {Image|null} avatar  — pre-loaded avatar image or null for placeholder
+ */
+function _drawMatchResultCard(ctx, data, offsetY, avatar) {
     const {
-        nickname, avatar_url, skillLevel,
+        nickname, skillLevel,
         currentElo, eloChange,
-        kills, deaths, assists, kd, adr, hsPercent, result,
+        kills, assists, kd, adr, hsPercent, result,
         competition, map,
     } = data;
 
@@ -700,38 +704,31 @@ async function generateMatchResultImage(data) {
         PLAYER_H, STATS_H, FOOTER_H, AVATAR_R, BADGE_R,
     } = RESULT_CARD;
 
-    const HEIGHT = ACCENT_H + HEADER_H + PLAYER_H + 1 + STATS_H + FOOTER_H;
+    const Y = offsetY;
 
-    let avatar = null;
-    if (avatar_url) {
-        try { avatar = await loadImage(avatar_url); } catch { /* fallback to placeholder */ }
-    }
-
-    const canvas = createCanvas(W, HEIGHT);
-    const ctx    = canvas.getContext('2d');
     ctx.textBaseline = 'alphabetic';
 
     // Background
     ctx.fillStyle = COLOR.bg;
-    ctx.fillRect(0, 0, W, HEIGHT);
+    ctx.fillRect(0, Y, W, RESULT_CARD_H);
 
-    // ── Orange accent bar ────────────────────────────────────────────────────────
+    // ── Orange accent bar ──────────────────────────────────────────────────────
     ctx.fillStyle = COLOR.accent;
-    ctx.fillRect(0, 0, W, ACCENT_H);
+    ctx.fillRect(0, Y, W, ACCENT_H);
 
-    // ── Header ───────────────────────────────────────────────────────────────────
+    // ── Header ─────────────────────────────────────────────────────────────────
     ctx.fillStyle = COLOR.headerBg;
-    ctx.fillRect(0, ACCENT_H, W, HEADER_H);
+    ctx.fillRect(0, Y + ACCENT_H, W, HEADER_H);
 
     ctx.fillStyle = COLOR.text;
     ctx.font      = `bold 22px ${FONT_FAMILY}`;
     ctx.textAlign = 'left';
-    ctx.fillText('MATCH RESULT', P, ACCENT_H + 36);
+    ctx.fillText('MATCH RESULT', P, Y + ACCENT_H + 36);
 
     const metaParts = [competition, map].filter(Boolean);
     ctx.fillStyle = COLOR.subtext;
     ctx.font      = `14px ${FONT_FAMILY}`;
-    ctx.fillText(metaParts.length ? metaParts.join('  ·  ') : 'CS2', P, ACCENT_H + 62);
+    ctx.fillText(metaParts.length ? metaParts.join('  ·  ') : 'CS2', P, Y + ACCENT_H + 62);
 
     // WIN / LOSE badge
     const isWin      = result === 1 || result === '1';
@@ -741,7 +738,7 @@ async function generateMatchResultImage(data) {
     const bw = ctx.measureText(badgeLabel).width + 24;
     const bh = 28;
     const bx = W - P - bw;
-    const by = ACCENT_H + HEADER_H / 2 - bh / 2;
+    const by = Y + ACCENT_H + HEADER_H / 2 - bh / 2;
 
     roundRect(ctx, bx, by, bw, bh, 5);
     ctx.fillStyle = badgeColor + '33';
@@ -757,12 +754,12 @@ async function generateMatchResultImage(data) {
     ctx.textBaseline = 'alphabetic';
 
     ctx.fillStyle = COLOR.separator;
-    ctx.fillRect(0, ACCENT_H + HEADER_H - 1, W, 1);
+    ctx.fillRect(0, Y + ACCENT_H + HEADER_H - 1, W, 1);
 
-    // ── Player row ───────────────────────────────────────────────────────────────
-    const playerY   = ACCENT_H + HEADER_H;
+    // ── Player row ─────────────────────────────────────────────────────────────
+    const playerY    = Y + ACCENT_H + HEADER_H;
     const playerMidY = playerY + PLAYER_H / 2;
-    const avatarCx  = P + AVATAR_R;
+    const avatarCx   = P + AVATAR_R;
 
     if (avatar) {
         drawCircularAvatar(ctx, avatar, avatarCx, playerMidY, AVATAR_R);
@@ -770,22 +767,21 @@ async function generateMatchResultImage(data) {
         drawAvatarPlaceholder(ctx, nickname?.[0], avatarCx, playerMidY, AVATAR_R);
     }
 
-    const badgeCx = avatarCx + AVATAR_R + 10 + BADGE_R;
+    const badgeCx  = avatarCx + AVATAR_R + 10 + BADGE_R;
     drawSkillBadge(ctx, skillLevel, badgeCx, playerMidY, BADGE_R);
 
-    const nameX   = badgeCx + BADGE_R + 14;
+    const nameX    = badgeCx + BADGE_R + 14;
     const maxNameW = W - nameX - P - 120;
     ctx.fillStyle = COLOR.text;
     ctx.font      = `bold 20px ${FONT_FAMILY}`;
     ctx.textAlign = 'left';
     ctx.fillText(truncateText(ctx, nickname, maxNameW), nameX, playerMidY - 2);
 
-    // ELO + delta (right side) — grouped as a tight two-line block
+    // ELO + delta (right side) — tight two-line block
     const eloStr = currentElo != null ? String(currentElo) : '—';
     ctx.textAlign = 'right';
 
     if (eloChange != null) {
-        // Two-line block centred in the row: number on top, delta closely below
         const sign       = eloChange >= 0 ? '+' : '';
         const deltaText  = `${sign}${eloChange} ELO`;
         const deltaColor = eloChange > 0 ? COLOR.positive : eloChange < 0 ? COLOR.negative : COLOR.subtext;
@@ -798,7 +794,6 @@ async function generateMatchResultImage(data) {
         ctx.font      = `bold 14px ${FONT_FAMILY}`;
         ctx.fillText(deltaText, W - P, playerMidY + 16);
     } else {
-        // Single centred line when no delta available
         ctx.fillStyle = COLOR.text;
         ctx.font      = `bold 22px ${FONT_FAMILY}`;
         ctx.fillText(`${eloStr} ELO`, W - P, playerMidY + 7);
@@ -808,17 +803,17 @@ async function generateMatchResultImage(data) {
     ctx.fillStyle = COLOR.separator;
     ctx.fillRect(0, playerY + PLAYER_H - 1, W, 1);
 
-    // ── Stats row ─────────────────────────────────────────────────────────────────
+    // ── Stats row ──────────────────────────────────────────────────────────────
     const statsY = playerY + PLAYER_H;
     ctx.fillStyle = COLOR.rowAlt;
     ctx.fillRect(0, statsY, W, STATS_H);
 
     const statCols = [
-        { label: 'KILLS',   value: String(kills)                          },
-        { label: 'ASSISTS', value: String(assists)                         },
-        { label: 'K/D',     value: parseFloat(kd).toFixed(2)              },
-        { label: 'ADR',     value: parseFloat(adr).toFixed(1)             },
-        { label: 'HS%',     value: `${hsPercent}%`                        },
+        { label: 'KILLS',   value: String(kills)               },
+        { label: 'ASSISTS', value: String(assists)              },
+        { label: 'K/D',     value: parseFloat(kd).toFixed(2)   },
+        { label: 'ADR',     value: parseFloat(adr).toFixed(1)  },
+        { label: 'HS%',     value: `${hsPercent}%`             },
     ];
 
     const colW = (W - 2 * P) / statCols.length;
@@ -835,20 +830,50 @@ async function generateMatchResultImage(data) {
         ctx.fillText(col.value, colCx, statsY + 56);
     });
 
-    // ── Footer ────────────────────────────────────────────────────────────────────
-    const footerY = HEIGHT - FOOTER_H;
+    // ── Footer ─────────────────────────────────────────────────────────────────
+    const footerY = Y + RESULT_CARD_H - FOOTER_H;
     ctx.fillStyle = COLOR.headerBg;
     ctx.fillRect(0, footerY, W, FOOTER_H);
     ctx.fillStyle = COLOR.subtext;
     ctx.font      = `12px ${FONT_FAMILY}`;
     ctx.textAlign = 'right';
     ctx.fillText('FACEIT Stats Bot', W - P, footerY + FOOTER_H / 2 + 4);
+}
 
+/**
+ * Generates a single-player match result card as a PNG buffer.
+ * Public API — returns Buffer; avatar is loaded internally.
+ * @param {{
+ *   nickname:    string,
+ *   avatar_url:  string|null,
+ *   skillLevel:  number|null,
+ *   currentElo:  number|null,
+ *   eloChange:   number|null,
+ *   kills:       number,
+ *   deaths:      number,
+ *   assists:     number,
+ *   kd:          number,
+ *   adr:         number,
+ *   hsPercent:   number,
+ *   result:      number,   // 1 = win, 0 = loss
+ *   competition: string|null,
+ *   map:         string|null,
+ * }} data
+ * @returns {Promise<Buffer>}
+ */
+async function generateMatchResultImage(data) {
+    const { WIDTH: W } = RESULT_CARD;
+    const avatar = await _loadAvatar(data.avatar_url);
+    const canvas = createCanvas(W, RESULT_CARD_H);
+    const ctx    = canvas.getContext('2d');
+    _drawMatchResultCard(ctx, data, 0, avatar);
     return canvas.toBuffer('image/png');
 }
 
 /**
- * Generates one vertical image with multiple match result cards.
+ * Generates one vertical image stacking multiple match result cards (one per player).
+ * Eliminates intermediate PNG encode/decode — all cards are drawn directly onto a
+ * single canvas; only one final toBuffer() call is made.
  * @param {Array<object>} playersData
  * @returns {Promise<Buffer>}
  */
@@ -857,24 +882,21 @@ async function generateMatchResultsSummaryImage(playersData) {
         throw new Error('playersData is required');
     }
 
-    const cardBuffers = await Promise.all(playersData.map(playerData => generateMatchResultImage(playerData)));
-    const cardImages = await Promise.all(cardBuffers.map((buffer) => loadImage(buffer)));
+    const { WIDTH: W } = RESULT_CARD;
+    const GAP         = 10;
+    const totalHeight = RESULT_CARD_H * playersData.length + GAP * (playersData.length - 1);
 
-    const gap = 10;
-    const width = Math.max(...cardImages.map(img => img.width));
-    const height = cardImages.reduce((sum, img) => sum + img.height, 0) + gap * (cardImages.length - 1);
+    // Load all avatars in parallel — no intermediate PNG encode/decode
+    const avatars = await Promise.all(playersData.map(d => _loadAvatar(d.avatar_url)));
 
-    const canvas = createCanvas(width, height);
-    const ctx = canvas.getContext('2d');
+    const canvas = createCanvas(W, totalHeight);
+    const ctx    = canvas.getContext('2d');
 
     ctx.fillStyle = COLOR.bg;
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, W, totalHeight);
 
-    let y = 0;
-    for (const img of cardImages) {
-        const x = Math.floor((width - img.width) / 2);
-        ctx.drawImage(img, x, y, img.width, img.height);
-        y += img.height + gap;
+    for (let i = 0; i < playersData.length; i++) {
+        _drawMatchResultCard(ctx, playersData[i], i * (RESULT_CARD_H + GAP), avatars[i]);
     }
 
     return canvas.toBuffer('image/png');

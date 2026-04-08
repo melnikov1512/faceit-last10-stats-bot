@@ -18,7 +18,7 @@ This is a Node.js Telegram bot designed to run as a **Google Cloud Function** (H
 The stats fetching module is located in `src/services/faceitService.js` and is integrated into the main bot logic.
 
 ## Architecture & Core logic
-- **Entry Point**: `index.js` loads the app from `src/app.js` and starts the server. Exports `telegramBot` for Google Cloud Functions; listens on `PORT` (default 8080) when run directly.
+- **Entry Point**: `index.js` loads the app from `src/app.js` and starts the server. Exports `telegramBot` for Google Cloud Functions; listens on `PORT` (default 8080) when run directly. Calls `fetchBotUsername()` and `setMyCommands()` at startup (both from `telegramService.js`).
 - **Webhook Pattern**: The bot uses the [Webhook Reply](https://core.telegram.org/bots/api#making-requests-when-getting-updates) mechanism.
   - **Logic**: Handled in `src/handlers/webhookHandler.js`. Uses **HTML** parse mode for responses.
   - **Example**:
@@ -35,8 +35,10 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - **Image Module**: `src/services/imageService.js`. Generates FACEIT-styled PNGs using `@napi-rs/canvas`. Exports:
     - `generateStatsImage(leaderboard, matchesCount) → Promise<Buffer>` — stats leaderboard card (720px wide).
     - `generateMatchImage(matchInfo) → Promise<Buffer>` — match notification card (640px wide). Shows team names, ELO, win probability pill, tracked player highlights with orange accent. `matchInfo`: `{ team1, team2, competition, region, bestOf }` where each team is `{ name, elo, winProb, trackedPlayers[] }`.
-    - `generateMatchResultImage(data) → Promise<Buffer>` — single-player match result card (540px wide). Shows WIN/LOSE badge, player avatar + nickname + skill level, current ELO + ELO delta, and per-match stats (Kills, Assists, K/D, ADR, HS%). Used by finish notifications for <2000 ELO players. `data`: `{ nickname, avatar_url, skillLevel, currentElo, eloChange, kills, deaths, assists, kd, adr, hsPercent, result, competition, map }`.
-    - `generateMatchResultsSummaryImage(playersData) → Promise<Buffer>` — stacks multiple `generateMatchResultImage` cards vertically (10px gap) into a single PNG. Used by `handleMatchFinishedEvent` to send one aggregated image per chat.
+    - `generateMatchResultImage(data) → Promise<Buffer>` — single-player match result card (540px wide). Shows WIN/LOSE badge, player avatar + nickname + skill level, current ELO + ELO delta, and per-match stats (Kills, Assists, K/D, ADR, HS%). Used by finish notifications for <2000 ELO players. `data`: `{ nickname, avatar_url, skillLevel, currentElo, eloChange, kills, deaths, assists, kd, adr, hsPercent, result, competition, map }`. Thin public wrapper around `_drawMatchResultCard`.
+    - `generateMatchResultsSummaryImage(playersData) → Promise<Buffer>` — stacks multiple match result cards vertically (10px gap) into a single PNG. Used by `handleMatchFinishedEvent` to send one aggregated image per chat. **Optimised:** all avatars are loaded in parallel, then all cards are drawn directly onto one shared canvas — no intermediate PNG encode/decode. Only one `toBuffer()` call is made regardless of player count.
+    - `_drawMatchResultCard(ctx, data, offsetY, avatar)` — private. Draws one result card at the given Y offset on an existing canvas context. Used by both `generateMatchResultImage` and `generateMatchResultsSummaryImage`.
+    - `_loadAvatar(url)` — private. Safely loads an avatar image; returns `null` on any error.
     - `generatePlayerCard(player, action) → Promise<Buffer>` — add/remove confirmation card (500px wide).
     - `generatePlayersListImage(players) → Promise<Buffer>` — tracked players list card (540px wide), sorted by ELO descending.
     - **Fonts**: bundled Inter WOFF2 in `src/assets/fonts/` registered via `GlobalFonts` — identical rendering on macOS and Linux.
@@ -45,6 +47,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **Batching**: Processes player lookups in chunks of 10 to manage API rate limits. For each player, `getPlayerInfoById`, game stats, and ELO timeline are fetched in parallel (3 concurrent requests per player, no sequential nickname→id resolution needed).
     - **Output**: Sorted by ADR descending. Formatted as an HTML-escaped table: `Name | ADR | K/D | Kills | ELO | ±ELO`.
     - **Active Match API**: `enrichMatchWithRosterElos(apiKey, match)` — adds `faceit_elo` and `skill_level` to every roster player. Single-match lookup is handled by `GET /api/match` in `apiHandler.js`.
+    - **Additional exports used externally**: `getMatchStats(apiKey, matchId)` — fetches raw match stats `{ rounds: [...] }` from `GET /matches/{id}/stats`; returns `null` for ongoing matches (404). `extractPlayerMatchStats(matchStats, playerId)` — extracts a single player's stats from the raw stats response (returns `{ kills, deaths, assists, kd, adr, hsPercent, result, map }`). `getLastMatchEloChange(playerId)` — returns the ELO delta for the player's most recent match from the unofficial timeline. All three are used by `subscriptionService.js` and/or `apiHandler.js`.
     - **Axios client**: Single module-level instance (`getApiClient`) — created once and reused across all FACEIT API calls.
 - **Web App**: `public/index.html`. Telegram Mini App that displays active matches for subscribed players in a chat.
     - Served at `GET /app` (static middleware from `public/`). Not at root `/`.
@@ -75,8 +78,14 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **Match Finish** (`handleMatchFinishedEvent`): for each subscribed chat, fetches current ELO and match stats for all tracked players, then sends ONE aggregated image (`generateMatchResultsSummaryImage`) stacking per-player result cards vertically. Caption contains funny lines (from `getRandomFunnyMessage`) for players with ELO < 2000. Deduplication key: `${matchId}_${chatId}_finish` (chat-level). Also calls `removeActiveMatch`.
     - **Web App Button**: If `WEBAPP_URL` env var is set, both start and finish notifications include an inline button. **Groups** (negative chat ID + `BOT_USERNAME` set): `url` button → `https://t.me/{bot_username}?startapp={chatId}_{matchId}&mode=compact`. **Private chats**: `web_app` type button → `{WEBAPP_URL}?chatId={chatId}&matchId={matchId}`.
     - **FACEIT Webhook Handler**: `src/handlers/faceitWebhookHandler.js` validates the `x-faceit-webhook-secret` header, responds `200` immediately, then processes the event asynchronously via `handleMatchEvent()` or `handleMatchFinishedEvent()`.
-- **Telegram Module**: `src/services/telegramService.js`. Sends messages to Telegram chats via Bot API (used for push notifications from FACEIT webhook events, not the webhook reply mechanism). Exports `sendMessage(chatId, text, replyMarkup?)` and `sendPhoto(chatId, imageBuffer, caption?, replyMarkup?)` (multipart/form-data upload with optional inline keyboard).
+- **Telegram Module**: `src/services/telegramService.js`. Sends messages to Telegram chats via Bot API (used for push notifications from FACEIT webhook events, not the webhook reply mechanism). Exports:
+    - `sendMessage(chatId, text, replyMarkup?, options?)` — sends text. `options.parseMode` defaults to `'Markdown'`; `options.disableWebPagePreview` defaults to `true`.
+    - `sendPhoto(chatId, imageBuffer, caption?, replyMarkup?)` — multipart/form-data upload; caption always uses `HTML` parse mode.
+    - `fetchBotUsername()` — calls Telegram `getMe` API and stores result in `config.bot_username`. Called at startup from `index.js`.
+    - `setMyCommands()` — registers `BOT_COMMANDS` with Telegram `setMyCommands` API so the `/` menu stays up to date. Called at startup from `index.js`.
 - **Command Logic**: `src/handlers/commandHandler.js`. Handles the following commands (all defined in `src/commands.js`). Handlers that send responses directly (e.g. `sendPhoto` for `/stats`) return `null`; `webhookHandler` sends `200` without a reply body in that case.
+    - **ForceReply pattern**: When a handler needs a missing argument (e.g. `/add_player` with no nickname), it returns `{ type: 'force_reply', prompt, placeholder }`. `webhookHandler` then sends a `force_reply` markup in private chats, or a usage hint `<code>/command placeholder</code>` in groups (where bots in privacy mode can't receive plain replies). `COMMAND_LIST` entries support optional `prompt` and `placeholder` fields to enable this behaviour — add both when creating a command that requires an argument.
+    - **`web_app` result type**: `handleLive` returns `{ type: 'web_app', text, url, parse_mode }`. `webhookHandler` sends a `web_app` button in private chats and a `url` t.me link in groups.
     | Command | Arguments | Purpose |
     |---|---|---|
     | `/stats` | `[N]` (2–100, default 10) | Show stats image for tracked players |
@@ -94,7 +103,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     4. If the webhook URL ever changes, run `npm run set-webhook` once manually.
 - **npm Scripts**:
     - `npm start` — Production start (`node index.js`).
-    - `npm run dev` — Local dev: starts ngrok tunnel and `node index.js` concurrently.
+    - `npm run dev` — Local dev: starts ngrok tunnel and `node index.js` concurrently. **Note**: the ngrok URL is hardcoded in `package.json` as a static domain (`huddlingly-shirty-chantal.ngrok-free.dev`) — requires a paid ngrok plan or a configured free static domain. Update this URL if the ngrok domain changes.
     - `npm run test-notify -- --nickname <nick> --chatId <chatId>` — Simulate a FACEIT **match start** notification locally (see `scripts/test-notify.js`).
     - `npm run test-notify-finish -- --nickname <nick> --chatId <chatId>` — Simulate a FACEIT **match finish** notification locally (see `scripts/test-notify-finish.js`). Add `--force` to bypass Firestore subscriptions and send the result card directly via Telegram API. Add `--matchId <id>` to use a specific match.
 - **Request Handling**:
@@ -148,8 +157,8 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/services/imageService.js`: Generates FACEIT-styled PNGs using `@napi-rs/canvas`. See Image Module section for full export list.
 - `src/services/storageService.js`: Firestore database operations (players, subscriptions, deduplication).
 - `src/services/subscriptionService.js`: Match-start and match-finish event handling and notification dispatch. `handleMatchEvent` for start, `handleMatchFinishedEvent` for finish (aggregated per-chat image via `generateMatchResultsSummaryImage`).
-- `src/data/matchFinishMessages.js`: **Message pools for finish notifications.** 30 funny messages for <2000 ELO players (`getRandomFunnyMessage(nickname, currentElo)`). Includes estimated wins to level 10 (ELO left / 25).
-- `src/services/telegramService.js`: Telegram Bot API integration for push notifications. `sendMessage(chatId, text, replyMarkup?)` supports optional inline keyboards. `sendPhoto(chatId, imageBuffer, caption?)` sends a PNG via multipart/form-data.
+- `src/data/matchFinishMessages.js`: **Message pools for finish notifications.** 30 funny messages for <2000 ELO players (`getRandomFunnyMessage(nickname, currentElo)`). Includes estimated wins to level 10 (ELO left / 25). Also exports `getExamplePlayersText(nicknames)` — 10 P.S. lines referencing ≥2000 ELO players in the same match (currently exported but not called by `subscriptionService.js`).
+- `src/services/telegramService.js`: Telegram Bot API integration for push notifications. `sendMessage(chatId, text, replyMarkup?)` supports optional inline keyboards. `sendPhoto(chatId, imageBuffer, caption?)` sends a PNG via multipart/form-data. Also exports `fetchBotUsername()` and `setMyCommands()` (both called at startup from `index.js`).
 - `src/config.js`: Configuration loader (env vars + config.json).
 - `src/commands.js`: **Единый реестр команд.** Экспортирует `COMMAND_LIST` (полные описания), `COMMANDS` (словарь строк), `BOT_COMMANDS` (для `setMyCommands` API). Единственное место для добавления новых команд.
 - `src/constants.js`: Shared runtime constants — `FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS`.
