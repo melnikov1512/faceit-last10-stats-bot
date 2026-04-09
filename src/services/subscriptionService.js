@@ -254,6 +254,8 @@ async function handleMatchFinishedEvent(payload) {
                 hsPercent: stats.hsPercent ?? 0,
                 result: stats.result ?? null,
                 map: stats.map ?? null,
+                teamScore: stats.teamScore ?? null,
+                opponentScore: stats.opponentScore ?? null,
             };
         });
 

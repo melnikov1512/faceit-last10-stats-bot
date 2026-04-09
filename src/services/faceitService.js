@@ -334,26 +334,35 @@ async function getMatchStats(apiKey, matchId) {
  * Looks through rounds[0].teams[].players[] for a matching player_id.
  * @param {object} matchStats  Response from GET /matches/{id}/stats
  * @param {string} playerId
- * @returns {{ kills, deaths, assists, kd, adr, hsPercent, result, map }|null}
+ * @returns {{ kills, deaths, assists, kd, adr, hsPercent, result, map, teamScore, opponentScore }|null}
  */
 function extractPlayerMatchStats(matchStats, playerId) {
     if (!matchStats?.rounds?.length) return null;
     const round = matchStats.rounds[0];
     const map   = round.round_stats?.Map ?? null;
+    const teams = round.teams || [];
 
-    for (const team of round.teams || []) {
+    for (let i = 0; i < teams.length; i++) {
+        const team   = teams[i];
         const player = (team.players || []).find(p => p.player_id === playerId);
         if (player) {
-            const s = player.player_stats || {};
+            const s            = player.player_stats || {};
+            const opponentTeam = teams[i === 0 ? 1 : 0];
+
+            const rawTeam = parseInt(team.team_stats?.['Final Score'] ?? team.team_stats?.final_score, 10);
+            const rawOpp  = parseInt(opponentTeam?.team_stats?.['Final Score'] ?? opponentTeam?.team_stats?.final_score, 10);
+
             return {
-                kills:     parseInt(s['Kills'], 10)          || 0,
-                deaths:    parseInt(s['Deaths'], 10)         || 0,
-                assists:   parseInt(s['Assists'], 10)        || 0,
-                kd:        parseFloat(s['K/D Ratio'])        || 0,
-                adr:       parseFloat(s['ADR'])              || 0,
-                hsPercent: parseInt(s['Headshots %'], 10)   || 0,
-                result:    parseInt(s['Result'], 10),          // 1 = win, 0 = loss
+                kills:         parseInt(s['Kills'], 10)        || 0,
+                deaths:        parseInt(s['Deaths'], 10)       || 0,
+                assists:       parseInt(s['Assists'], 10)      || 0,
+                kd:            parseFloat(s['K/D Ratio'])      || 0,
+                adr:           parseFloat(s['ADR'])            || 0,
+                hsPercent:     parseInt(s['Headshots %'], 10)  || 0,
+                result:        parseInt(s['Result'], 10),        // 1 = win, 0 = loss
                 map,
+                teamScore:     isNaN(rawTeam) ? null : rawTeam,
+                opponentScore: isNaN(rawOpp)  ? null : rawOpp,
             };
         }
     }

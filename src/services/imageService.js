@@ -712,6 +712,7 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
         currentElo, eloChange,
         kills, assists, kd, adr, hsPercent, result,
         competition, map,
+        teamScore, opponentScore,
     } = data;
 
     const {
@@ -770,6 +771,14 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
     ctx.textBaseline = 'middle';
     ctx.fillText(badgeLabel, bx + bw / 2, by + bh / 2);
     ctx.textBaseline = 'alphabetic';
+
+    // Score line below badge (e.g. "16 : 12") — shown when both scores are available
+    if (teamScore != null && opponentScore != null) {
+        ctx.fillStyle = badgeColor;
+        ctx.font      = `bold 13px ${FONT_FAMILY}`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`${teamScore} : ${opponentScore}`, W - P, by + bh + 16);
+    }
 
     ctx.fillStyle = COLOR.separator;
     ctx.fillRect(0, Y + ACCENT_H + HEADER_H - 1, W, 1);
@@ -862,20 +871,22 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
  * Generates a single-player match result card as a PNG buffer.
  * Public API — returns Buffer; avatar is loaded internally.
  * @param {{
- *   nickname:    string,
- *   avatar_url:  string|null,
- *   skillLevel:  number|null,
- *   currentElo:  number|null,
- *   eloChange:   number|null,
- *   kills:       number,
- *   deaths:      number,
- *   assists:     number,
- *   kd:          number,
- *   adr:         number,
- *   hsPercent:   number,
- *   result:      number,   // 1 = win, 0 = loss
- *   competition: string|null,
- *   map:         string|null,
+ *   nickname:      string,
+ *   avatar_url:    string|null,
+ *   skillLevel:    number|null,
+ *   currentElo:    number|null,
+ *   eloChange:     number|null,
+ *   kills:         number,
+ *   deaths:        number,
+ *   assists:       number,
+ *   kd:            number,
+ *   adr:           number,
+ *   hsPercent:     number,
+ *   result:        number,        // 1 = win, 0 = loss
+ *   competition:   string|null,
+ *   map:           string|null,
+ *   teamScore:     number|null,   // player's team final score (e.g. 16)
+ *   opponentScore: number|null,   // opponent team final score (e.g. 12)
  * }} data
  * @returns {Promise<Buffer>}
  */
