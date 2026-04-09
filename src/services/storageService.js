@@ -165,23 +165,31 @@ async function hasNotificationBeenSent(matchId, chatId) {
 }
 
 /**
- * Mark a match notification as sent to a chat.
+ * Atomically mark a match notification as sent to a chat.
+ * Uses Firestore `create()` to prevent race conditions between parallel GCF instances.
  * @param {string} matchId
  * @param {string} chatId
  * @param {string[]} [playerIds] - FACEIT player IDs of subscribed players that triggered this notification
+ * @returns {Promise<boolean>} `true` if the notification was recorded for the first time, `false` if it was already sent (duplicate).
  */
 async function markNotificationSent(matchId, chatId, playerIds = []) {
     const docId = `${matchId}_${chatId}`;
     const expireAt = new Firestore.Timestamp(
         Math.floor((Date.now() + NOTIFICATION_TTL_MS) / 1000), 0
     );
-    await sentMatchNotificationsCollection.doc(docId).set({
-        matchId,
-        chatId: chatId.toString(),
-        playerIds,
-        sentAt: Firestore.Timestamp.now(),
-        expireAt,
-    });
+    try {
+        await sentMatchNotificationsCollection.doc(docId).create({
+            matchId,
+            chatId: chatId.toString(),
+            playerIds,
+            sentAt: Firestore.Timestamp.now(),
+            expireAt,
+        });
+        return true;
+    } catch (err) {
+        if (err.code === 6) return false; // ALREADY_EXISTS — duplicate, skip
+        throw err;
+    }
 }
 
 /**
@@ -197,24 +205,32 @@ async function hasFinishNotificationBeenSentForChat(matchId, chatId) {
 }
 
 /**
- * Mark a finish notification as sent for a match+chat.
+ * Atomically mark a finish notification as sent for a match+chat.
+ * Uses Firestore `create()` to prevent race conditions between parallel GCF instances.
  * @param {string} matchId
  * @param {string} chatId
  * @param {string[]} [playerIds]
+ * @returns {Promise<boolean>} `true` if the notification was recorded for the first time, `false` if it was already sent (duplicate).
  */
 async function markFinishNotificationSentForChat(matchId, chatId, playerIds = []) {
     const docId = `${matchId}_${chatId}_finish`;
     const expireAt = new Firestore.Timestamp(
         Math.floor((Date.now() + NOTIFICATION_TTL_MS) / 1000), 0
     );
-    await sentMatchNotificationsCollection.doc(docId).set({
-        matchId,
-        chatId: chatId.toString(),
-        playerIds,
-        type: 'finish_chat',
-        sentAt: Firestore.Timestamp.now(),
-        expireAt,
-    });
+    try {
+        await sentMatchNotificationsCollection.doc(docId).create({
+            matchId,
+            chatId: chatId.toString(),
+            playerIds,
+            type: 'finish_chat',
+            sentAt: Firestore.Timestamp.now(),
+            expireAt,
+        });
+        return true;
+    } catch (err) {
+        if (err.code === 6) return false; // ALREADY_EXISTS — duplicate, skip
+        throw err;
+    }
 }
 
 /**

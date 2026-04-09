@@ -75,15 +75,14 @@ async function handleMatchEvent(payload) {
         return;
     }
 
-    // Send one notification per chat, skipping already-sent ones
+    // Send one notification per chat, skipping already-sent ones (atomic via Firestore create())
     await Promise.all([...chatToPlayers.entries()].map(async ([chatId, { nicknames, playerIds }]) => {
-        const alreadySent = await storageService.hasNotificationBeenSent(matchId, chatId);
-        if (alreadySent) {
+        const created = await storageService.markNotificationSent(matchId, chatId, playerIds);
+        if (!created) {
             console.log(`[FACEIT WEBHOOK] Match ${matchId} notification already sent to chat ${chatId}, skipping`);
             return;
         }
 
-        await storageService.markNotificationSent(matchId, chatId, playerIds);
         await storageService.storeActiveMatch(chatId, matchId);
 
         const team1TrackedPlayers = nicknames.filter(n => faction1.roster?.some(p => p.nickname === n));
@@ -217,8 +216,9 @@ async function handleMatchFinishedEvent(payload) {
         // Clean up active match record for this chat
         storageService.removeActiveMatch(chatId, matchId).catch(() => {});
 
-        const alreadySent = await storageService.hasFinishNotificationBeenSentForChat(matchId, chatId);
-        if (alreadySent) {
+        // Atomic create: returns false if already sent (race condition protection)
+        const created = await storageService.markFinishNotificationSentForChat(matchId, chatId, players.map(p => p.playerId));
+        if (!created) {
             console.log(`[FACEIT WEBHOOK] Finish notification for match ${matchId} already sent to chat ${chatId}, skipping`);
             return;
         }
@@ -259,8 +259,6 @@ async function handleMatchFinishedEvent(payload) {
 
         const button      = buildWebAppButton(chatId, matchId);
         const replyMarkup = button ? { inline_keyboard: [[button]] } : null;
-
-        await storageService.markFinishNotificationSentForChat(matchId, chatId, players.map(p => p.playerId));
 
         const imageBuffer = await generateMatchResultsSummaryImage(cardPlayersData);
         const caption = buildFinishJokesCaption(playerDetails);

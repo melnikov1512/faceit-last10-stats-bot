@@ -4,10 +4,10 @@
 // Mock @google-cloud/firestore BEFORE requiring the module under test
 // ---------------------------------------------------------------------------
 
-const mockSet  = jest.fn().mockResolvedValue();
-const mockGet  = jest.fn();
-const mockDoc  = jest.fn(() => ({ set: mockSet, get: mockGet }));
-const mockWhere = jest.fn();
+const mockCreate = jest.fn().mockResolvedValue();
+const mockGet    = jest.fn();
+const mockDoc    = jest.fn(() => ({ create: mockCreate, get: mockGet }));
+const mockWhere  = jest.fn();
 
 // Minimal Timestamp stub that mirrors the real API surface used by storageService.
 class MockTimestamp {
@@ -58,8 +58,8 @@ describe('markNotificationSent', () => {
 
         const after = Math.floor((Date.now() + NOTIFICATION_TTL_MS) / 1000);
 
-        expect(mockSet).toHaveBeenCalledTimes(1);
-        const payload = mockSet.mock.calls[0][0];
+        expect(mockCreate).toHaveBeenCalledTimes(1);
+        const payload = mockCreate.mock.calls[0][0];
 
         expect(payload).toMatchObject({
             matchId:  'match-1',
@@ -75,7 +75,7 @@ describe('markNotificationSent', () => {
     it('writes sentAt as a Timestamp', async () => {
         await markNotificationSent('m', 'c');
 
-        const payload = mockSet.mock.calls[0][0];
+        const payload = mockCreate.mock.calls[0][0];
         expect(payload.sentAt).toBeInstanceOf(MockTimestamp);
     });
 
@@ -88,8 +88,26 @@ describe('markNotificationSent', () => {
     it('defaults playerIds to empty array when omitted', async () => {
         await markNotificationSent('m', 'c');
 
-        const payload = mockSet.mock.calls[0][0];
+        const payload = mockCreate.mock.calls[0][0];
         expect(payload.playerIds).toEqual([]);
+    });
+
+    it('returns true when document is created successfully', async () => {
+        mockCreate.mockResolvedValueOnce();
+        const result = await markNotificationSent('m', 'c', ['p1']);
+        expect(result).toBe(true);
+    });
+
+    it('returns false (and does not throw) when document already exists (code 6)', async () => {
+        mockCreate.mockRejectedValueOnce({ code: 6 });
+        const result = await markNotificationSent('m', 'c', ['p1']);
+        expect(result).toBe(false);
+    });
+
+    it('rethrows errors with code other than 6', async () => {
+        const err = { code: 503, message: 'Service Unavailable' };
+        mockCreate.mockRejectedValueOnce(err);
+        await expect(markNotificationSent('m', 'c')).rejects.toMatchObject({ code: 503 });
     });
 });
 
@@ -105,7 +123,7 @@ describe('markFinishNotificationSentForChat', () => {
 
         const after = Math.floor((Date.now() + NOTIFICATION_TTL_MS) / 1000);
 
-        const payload = mockSet.mock.calls[0][0];
+        const payload = mockCreate.mock.calls[0][0];
 
         expect(payload.expireAt).toBeInstanceOf(MockTimestamp);
         expect(payload.expireAt.seconds).toBeGreaterThanOrEqual(before - 5);
@@ -115,7 +133,7 @@ describe('markFinishNotificationSentForChat', () => {
     it('preserves type: "finish_chat"', async () => {
         await markFinishNotificationSentForChat('m', 'c', []);
 
-        const payload = mockSet.mock.calls[0][0];
+        const payload = mockCreate.mock.calls[0][0];
         expect(payload.type).toBe('finish_chat');
     });
 
@@ -128,12 +146,30 @@ describe('markFinishNotificationSentForChat', () => {
     it('writes matchId, chatId and playerIds correctly', async () => {
         await markFinishNotificationSentForChat('match-3', 'chat-3', ['p1', 'p2']);
 
-        const payload = mockSet.mock.calls[0][0];
+        const payload = mockCreate.mock.calls[0][0];
         expect(payload).toMatchObject({
             matchId:   'match-3',
             chatId:    'chat-3',
             playerIds: ['p1', 'p2'],
         });
+    });
+
+    it('returns true when document is created successfully', async () => {
+        mockCreate.mockResolvedValueOnce();
+        const result = await markFinishNotificationSentForChat('m', 'c', ['p1']);
+        expect(result).toBe(true);
+    });
+
+    it('returns false (and does not throw) when document already exists (code 6)', async () => {
+        mockCreate.mockRejectedValueOnce({ code: 6 });
+        const result = await markFinishNotificationSentForChat('m', 'c', ['p1']);
+        expect(result).toBe(false);
+    });
+
+    it('rethrows errors with code other than 6', async () => {
+        const err = { code: 503, message: 'Service Unavailable' };
+        mockCreate.mockRejectedValueOnce(err);
+        await expect(markFinishNotificationSentForChat('m', 'c')).rejects.toMatchObject({ code: 503 });
     });
 });
 

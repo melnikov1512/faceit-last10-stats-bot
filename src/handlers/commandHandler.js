@@ -1,6 +1,6 @@
 const { getLeaderboardStats, getPlayerDetailsByNickname, getPlayerDetails } = require('../services/faceitService');
 const { collectMatchIds, fetchActiveMatchDetails } = require('../services/matchService');
-const { MATCH_STATUS_LABELS } = require('../constants');
+const { MATCH_STATUS_LABELS, MAX_PLAYERS_PER_CHAT } = require('../constants');
 const { escapeHtml } = require('../utils');
 const config = require('../config');
 const storageService = require('../services/storageService');
@@ -68,6 +68,11 @@ async function handlePlayers(chatId, apiKey) {
 async function handleAddPlayer(chatId, args, apiKey, chatName) {
     if (args.length === 0) {
         return forceReply('ADD_PLAYER');
+    }
+
+    const existingPlayers = await storageService.getPlayers(chatId);
+    if (existingPlayers.length >= MAX_PLAYERS_PER_CHAT) {
+        return `❌ Достигнут лимит игроков (${MAX_PLAYERS_PER_CHAT}). Удалите кого-нибудь с помощью <code>${COMMANDS.REMOVE_PLAYER} &lt;nickname&gt;</code>.`;
     }
 
     const player = await getPlayerDetailsByNickname(apiKey, args[0]);

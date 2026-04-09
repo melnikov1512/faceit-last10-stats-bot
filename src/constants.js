@@ -1,3 +1,6 @@
+/** Maximum number of players that can be tracked in a single chat */
+const MAX_PLAYERS_PER_CHAT = 20;
+
 /** FACEIT match statuses that mean a match is definitively over */
 const FINISHED_STATUSES = new Set(['FINISHED', 'CANCELLED', 'ABORTED', 'WALKOVER', 'DROPPED']);
 
@@ -12,4 +15,4 @@ const MATCH_STATUS_LABELS = {
     CONFIGURING: '⚪ Настройка',
 };
 
-module.exports = { FINISHED_STATUSES, MATCH_URL_BASE, MATCH_STATUS_LABELS };
+module.exports = { FINISHED_STATUSES, MATCH_URL_BASE, MATCH_STATUS_LABELS, MAX_PLAYERS_PER_CHAT };

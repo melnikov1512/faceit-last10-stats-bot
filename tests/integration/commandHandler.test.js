@@ -30,6 +30,8 @@ beforeEach(() => {
     imageService.generatePlayerCard.mockResolvedValue(FAKE_IMAGE);
     imageService.generatePlayersListImage.mockResolvedValue(FAKE_IMAGE);
     telegramService.sendPhoto.mockResolvedValue();
+    // default: empty player list (used by /add_player limit check)
+    storageService.getPlayers.mockResolvedValue([]);
 });
 
 // ---------------------------------------------------------------------------
@@ -121,6 +123,17 @@ describe('/add_player', () => {
         const result = await handleCommand(COMMANDS.ADD_PLAYER, 123, [], 'key');
         expect(result.type).toBe('force_reply');
         expect(result.placeholder).toBe('nickname');
+    });
+
+    it('returns an error when the player limit is reached', async () => {
+        const fullList = Array.from({ length: 20 }, (_, i) => ({ id: `p${i}`, nickname: `player${i}` }));
+        storageService.getPlayers.mockResolvedValue(fullList);
+
+        const result = await handleCommand(COMMANDS.ADD_PLAYER, 123, ['newplayer'], 'key');
+
+        expect(result).toContain('лимит');
+        expect(result).toContain('20');
+        expect(faceitService.getPlayerDetailsByNickname).not.toHaveBeenCalled();
     });
 
     it('returns an error when the player is not found on FACEIT', async () => {

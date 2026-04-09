@@ -18,9 +18,12 @@ describe('getRandomFunnyMessage', () => {
     });
 
     it('replaces {elo} with the given ELO value', () => {
+        // Some templates use {elo} (→ currentElo), others use {left} (→ 2000-currentElo).
+        // Either way an ELO-related number must be present in every output.
+        const eloLeft = String(2000 - 1234); // "766"
         for (let i = 0; i < 10; i++) {
             const result = getRandomFunnyMessage('Player', 1234);
-            expect(result).toContain('1234');
+            expect(result.includes('1234') || result.includes(eloLeft)).toBe(true);
         }
     });
 

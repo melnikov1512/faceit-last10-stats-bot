@@ -72,6 +72,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
             - Finish (per-player, legacy): `{matchId}_{chatId}_{playerId}_finish` — Fields: `matchId`, `chatId`, `playerId`, `type: 'finish'`, `sentAt`.
             - **TTL**: Нативный Firestore TTL настроен на поле `expireAt`. Документы автоматически удаляются через 7 дней. Для (пере-)создания политики: `gcloud firestore fields ttls update expireAt --collection-group=sent_match_notifications --enable-ttl --project=<GCLOUD_PROJECT>`.
         - `active_matches` — Document ID = `{chatId}_{matchId}`. Structure: `{ chatId, matchId, startedAt }`. Written when a match-start notification is sent; deleted when the match finishes/is cancelled. Functions: `storeActiveMatch`, `getActiveMatchIds`, `removeActiveMatch`.
+    - **Deduplication (race-condition safe)**: `markNotificationSent` and `markFinishNotificationSentForChat` use Firestore `create()` (atomic) instead of `set()`. Returns `true` if the document was newly created (proceed with sending), `false` if it already existed (`ALREADY_EXISTS`, code `6` — skip silently). This prevents duplicate notifications when parallel GCF instances handle the same webhook event.
     - **Key function**: `getRecentMatchIdsForPlayers(playerIds, sinceTs)` — searches `sent_match_notifications` (where `playerIds` array-contains a tracked player) within a 6-hour window. Used by `matchService` as a cross-chat fallback to find active matches.
     - **Requirement**: Firestore database must be created in **Native Mode**.
 - **Subscription Module**: `src/services/subscriptionService.js`. Handles match-start and match-finish event logic triggered by FACEIT webhooks. Queries subscriptions, deduplicates notifications, and dispatches Telegram messages. Subscription management (subscribe/unsubscribe) is handled automatically by `add_player`/`remove_player` commands via `storageService.subscribeChat` / `storageService.unsubscribeChat`.
@@ -87,6 +88,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - `setMyCommands()` — registers `BOT_COMMANDS` with Telegram `setMyCommands` API so the `/` menu stays up to date. Called at startup from `index.js`.
 - **Command Logic**: `src/handlers/commandHandler.js`. Handles the following commands (all defined in `src/commands.js`). Handlers that send responses directly (e.g. `sendPhoto` for `/stats`) return `null`; `webhookHandler` sends `200` without a reply body in that case.
     - **ForceReply pattern**: When a handler needs a missing argument (e.g. `/add_player` with no nickname), it returns `{ type: 'force_reply', prompt, placeholder }`. `webhookHandler` then sends a `force_reply` markup in private chats, or a usage hint `<code>/command placeholder</code>` in groups (where bots in privacy mode can't receive plain replies). `COMMAND_LIST` entries support optional `prompt` and `placeholder` fields to enable this behaviour — add both when creating a command that requires an argument.
+    - **Player limit**: `handleAddPlayer` checks the current player count against `MAX_PLAYERS_PER_CHAT` (20) **before** calling the FACEIT API. Returns an error message if the limit is reached.
     - **`web_app` result type**: `handleLive` returns `{ type: 'web_app', text, url, parse_mode }`. `webhookHandler` sends a `web_app` button in private chats and a `url` t.me link in groups.
     | Command | Arguments | Purpose |
     |---|---|---|
@@ -166,7 +168,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/services/telegramService.js`: Telegram Bot API integration for push notifications. `sendMessage(chatId, text, replyMarkup?)` supports optional inline keyboards. `sendPhoto(chatId, imageBuffer, caption?)` sends a PNG via multipart/form-data. Also exports `fetchBotUsername()` and `setMyCommands()` (both called at startup from `index.js`).
 - `src/config.js`: Configuration loader (env vars + config.json).
 - `src/commands.js`: **Единый реестр команд.** Экспортирует `COMMAND_LIST` (полные описания), `COMMANDS` (словарь строк), `BOT_COMMANDS` (для `setMyCommands` API). Единственное место для добавления новых команд.
-- `src/constants.js`: Shared runtime constants — `FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS`.
+- `src/constants.js`: Shared runtime constants — `FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS`, `MAX_PLAYERS_PER_CHAT` (= 20).
 - `src/utils.js`: Shared utility functions — `escapeHtml`.
 - `public/index.html`: Telegram Mini App web page — shows active matches with rosters, ELO, and live scores.
 - `config.json`: Master configuration file (default values; no secrets).
@@ -195,7 +197,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 | `tests/unit/matchFinishMessages.test.js` | `getRandomFunnyMessage` — placeholder replacement, edge ELO cases |
 | `tests/unit/processMatchStats.test.js` | `processMatchStats` — null input, single map, multi-map accumulation, K/D & HS% edge cases |
 | `tests/unit/matchService.test.js` | `collectMatchIds` dedup logic; `fetchActiveMatchDetails` filtering & Firestore cleanup |
-| `tests/unit/storageService.test.js` | `markNotificationSent` / `markFinishNotificationSentForChat` — наличие поля `expireAt` (TTL = 7 дней ±5 сек); регрессия `getRecentMatchIdsForPlayers` с `expireAt` в документах |
+| `tests/unit/storageService.test.js` | `markNotificationSent` / `markFinishNotificationSentForChat` — atomic `create()` contract: returns `true` on success, `false` on `ALREADY_EXISTS` (code 6), rethrows other errors; `expireAt` TTL field (7 days ±5 s); regression `getRecentMatchIdsForPlayers` with `expireAt` field in docs |
 | `tests/integration/commandHandler.test.js` | All 6 commands: happy paths, error messages, `force_reply`, `web_app` result |
 | `tests/integration/webhookHandler.test.js` | Telegram webhook routing: ignoring invalid updates, `@botname` stripping, ForceReply detection, group vs private response shapes |
 | `tests/integration/faceitWebhookHandler.test.js` | Secret validation (401), unsupported events, `match_status_ready` / `match_status_finished` dispatch, fire-and-forget error swallowing |
