@@ -2,11 +2,19 @@ const { getLeaderboardStats, getPlayerDetailsByNickname, getPlayerDetails } = re
 const { collectMatchIds, fetchActiveMatchDetails } = require('../services/matchService');
 const { MATCH_STATUS_LABELS, MAX_PLAYERS_PER_CHAT } = require('../constants');
 const { escapeHtml } = require('../utils');
+const { isRateLimited } = require('../utils/rateLimiter');
 const config = require('../config');
 const storageService = require('../services/storageService');
 const { COMMANDS, COMMAND_LIST } = require('../commands');
 const { generateStatsImage, generatePlayerCard, generatePlayersListImage } = require('../services/imageService');
 const { sendPhoto } = require('../services/telegramService');
+
+// Cool-down periods per command (milliseconds)
+const RATE_LIMIT_MS = {
+    STATS:   30_000,   // /stats   — 30 s
+    MYSTATS: 30_000,   // /mystats — 30 s
+    PLAYERS: 10_000,   // /players — 10 s
+};
 
 function forceReply(commandKey) {
     const cmd = COMMAND_LIST.find(c => c.key === commandKey);
@@ -16,6 +24,10 @@ function forceReply(commandKey) {
 async function handleMyStats(chatId, args, apiKey) {
     if (args.length === 0) {
         return forceReply('MYSTATS');
+    }
+
+    if (isRateLimited(`${chatId}:mystats`, RATE_LIMIT_MS.MYSTATS)) {
+        return '⏳ Подождите 30 секунд перед повторным запросом <code>/mystats</code>.';
     }
 
     const nickname = args[0];
@@ -45,6 +57,10 @@ async function handleMyStats(chatId, args, apiKey) {
 }
 
 async function handleStats(chatId, args, apiKey) {
+    if (isRateLimited(`${chatId}:stats`, RATE_LIMIT_MS.STATS)) {
+        return '⏳ Подождите 30 секунд перед повторным запросом <code>/stats</code>.';
+    }
+
     const players = await storageService.getPlayers(chatId);
 
     if (players.length === 0) {
@@ -73,6 +89,10 @@ async function handleStats(chatId, args, apiKey) {
 }
 
 async function handlePlayers(chatId, apiKey) {
+    if (isRateLimited(`${chatId}:players`, RATE_LIMIT_MS.PLAYERS)) {
+        return '⏳ Подождите 10 секунд перед повторным запросом <code>/players</code>.';
+    }
+
     const players = await storageService.getPlayers(chatId);
     if (players.length === 0) {
         return `⚠️ No players tracked in this chat. Use <code>${COMMANDS.ADD_PLAYER} &lt;nickname&gt;</code> to start.`;

@@ -5,6 +5,9 @@ jest.mock('../../src/services/storageService');
 jest.mock('../../src/services/imageService');
 jest.mock('../../src/services/telegramService');
 jest.mock('../../src/services/matchService');
+jest.mock('../../src/utils/rateLimiter', () => ({
+    isRateLimited: jest.fn(() => false), // not limited by default
+}));
 jest.mock('../../src/config', () => ({
     faceit_api_key: 'test-api-key',
     last_matches:   10,
@@ -18,6 +21,7 @@ const imageService   = require('../../src/services/imageService');
 const telegramService = require('../../src/services/telegramService');
 const matchService   = require('../../src/services/matchService');
 const config         = require('../../src/config');
+const rateLimiter    = require('../../src/utils/rateLimiter');
 
 const { handleCommand } = require('../../src/handlers/commandHandler');
 const { COMMANDS }      = require('../../src/commands');
@@ -61,6 +65,13 @@ describe('/mystats', () => {
         const result = await handleCommand(COMMANDS.MYSTATS, 123, [], 'key');
         expect(result.type).toBe('force_reply');
         expect(result.placeholder).toBe('nickname');
+    });
+
+    it('returns rate-limit message when called too frequently', async () => {
+        rateLimiter.isRateLimited.mockReturnValueOnce(true);
+        const result = await handleCommand(COMMANDS.MYSTATS, 123, ['s1mple'], 'key');
+        expect(result).toContain('⏳');
+        expect(faceitService.getPlayerDetailsByNickname).not.toHaveBeenCalled();
     });
 
     it('returns an error when the player is not found on FACEIT', async () => {
@@ -128,6 +139,13 @@ describe('/mystats', () => {
 // ---------------------------------------------------------------------------
 
 describe('/stats', () => {
+    it('returns rate-limit message when called too frequently', async () => {
+        rateLimiter.isRateLimited.mockReturnValueOnce(true);
+        const result = await handleCommand(COMMANDS.STATS, 123, [], 'key');
+        expect(result).toContain('⏳');
+        expect(storageService.getPlayers).not.toHaveBeenCalled();
+    });
+
     it('returns "no players" message when the chat has no tracked players', async () => {
         storageService.getPlayers.mockResolvedValue([]);
         const result = await handleCommand(COMMANDS.STATS, 123, [], 'key');
@@ -289,6 +307,13 @@ describe('/remove_player', () => {
 // ---------------------------------------------------------------------------
 
 describe('/players', () => {
+    it('returns rate-limit message when called too frequently', async () => {
+        rateLimiter.isRateLimited.mockReturnValueOnce(true);
+        const result = await handleCommand(COMMANDS.PLAYERS, 123, [], 'key');
+        expect(result).toContain('⏳');
+        expect(storageService.getPlayers).not.toHaveBeenCalled();
+    });
+
     it('returns "no players" message when the chat has no tracked players', async () => {
         storageService.getPlayers.mockResolvedValue([]);
         const result = await handleCommand(COMMANDS.PLAYERS, 123, [], 'key');

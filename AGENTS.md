@@ -171,6 +171,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/commands.js`: **Единый реестр команд.** Экспортирует `COMMAND_LIST` (полные описания), `COMMANDS` (словарь строк), `BOT_COMMANDS` (для `setMyCommands` API). Единственное место для добавления новых команд.
 - `src/constants.js`: Shared runtime constants — `FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS`, `MAX_PLAYERS_PER_CHAT` (= 20).
 - `src/utils.js`: Shared utility functions — `escapeHtml`.
+- `src/utils/rateLimiter.js`: In-memory per-key rate limiter. `isRateLimited(key, limitMs) → boolean` — returns `true` if the key is within its cool-down window (and skips recording); `false` otherwise (records the call). Used by `commandHandler.js` to limit `/stats` (30 s), `/mystats` (30 s), `/players` (10 s) per chat. Stateless across GCF instances — protects warm-instance burst spam only. `_reset()` is exported for tests only.
 - `public/index.html`: Telegram Mini App web page — shows active matches with rosters, ELO, and live scores.
 - `config.json`: Master configuration file (default values; no secrets).
 - `scripts/` — development utilities:
@@ -192,6 +193,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 
 | File | What it covers |
 |---|---|
+| `tests/unit/rateLimiter.test.js` | `isRateLimited` — first-call pass, second-call block, 0 ms expiry, independent keys, cross-chatId isolation, `_reset()` |
 | `tests/unit/utils.test.js` | `escapeHtml` — all HTML entity replacements, non-string input |
 | `tests/unit/constants.test.js` | `FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS` shape |
 | `tests/unit/commands.test.js` | `COMMAND_LIST` structure, `COMMANDS` map, `BOT_COMMANDS` derivation |
