@@ -16,6 +16,14 @@ const COMMAND_LIST = [
         description: 'Статистика за последние N матчей (по умолч. 10, диапазон 2–100)',
     },
     {
+        key:         'MYSTATS',
+        command:     '/mystats',
+        args:        '<nickname> [N]',
+        description: 'Статистика произвольного игрока (без добавления в список)',
+        prompt:      'Введите никнейм игрока:',
+        placeholder: 'nickname',
+    },
+    {
         key:         'ADD_PLAYER',
         command:     '/add_player',
         args:        '<nickname>',

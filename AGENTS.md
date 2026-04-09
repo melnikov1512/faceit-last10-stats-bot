@@ -93,6 +93,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     | Command | Arguments | Purpose |
     |---|---|---|
     | `/stats` | `[N]` (2–100, default 10) | Show stats image for tracked players |
+    | `/mystats` | `<nickname> [N]` | Show stats image for any player (no tracking required) |
     | `/add_player` | `<nickname>` | Add player to tracking list and subscribe to match notifications |
     | `/remove_player` | `<nickname>` | Remove player from tracking list and unsubscribe from notifications |
     | `/players` | — | List all tracked players |
@@ -199,7 +200,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 | `tests/unit/processMatchStats.test.js` | `processMatchStats` — null input, single map, multi-map accumulation, K/D & HS% edge cases |
 | `tests/unit/matchService.test.js` | `collectMatchIds` dedup logic; `fetchActiveMatchDetails` filtering & Firestore cleanup |
 | `tests/unit/storageService.test.js` | `markNotificationSent` / `markFinishNotificationSentForChat` — atomic `create()` contract: returns `true` on success, `false` on `ALREADY_EXISTS` (code 6), rethrows other errors; `expireAt` TTL field (7 days ±5 s); regression `getRecentMatchIdsForPlayers` with `expireAt` field in docs |
-| `tests/integration/commandHandler.test.js` | All 6 commands: happy paths, error messages, `force_reply`, `web_app` result |
+| `tests/integration/commandHandler.test.js` | All 7 commands: happy paths, error messages, `force_reply`, `web_app` result |
 | `tests/integration/webhookHandler.test.js` | Telegram webhook routing: ignoring invalid updates, `@botname` stripping, ForceReply detection, group vs private response shapes |
 | `tests/integration/faceitWebhookHandler.test.js` | Secret validation (401), unsupported events, `match_status_ready` / `match_status_finished` dispatch, fire-and-forget error swallowing |
 | `tests/integration/apiHandler.test.js` | `GET /api/active-matches` and `GET /api/match` — 400/404/500 errors, success shapes, tracked-player marking, `matchStats` enrichment |

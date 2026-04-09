@@ -43,11 +43,83 @@ describe('/help', () => {
         const result = await handleCommand(COMMANDS.HELP, 123, [], 'key');
         expect(typeof result).toBe('string');
         expect(result).toContain('/stats');
+        expect(result).toContain('/mystats');
         expect(result).toContain('/add_player');
         expect(result).toContain('/remove_player');
         expect(result).toContain('/players');
         expect(result).toContain('/live');
         expect(result).toContain('/help');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// /mystats
+// ---------------------------------------------------------------------------
+
+describe('/mystats', () => {
+    it('returns force_reply when no arguments are provided', async () => {
+        const result = await handleCommand(COMMANDS.MYSTATS, 123, [], 'key');
+        expect(result.type).toBe('force_reply');
+        expect(result.placeholder).toBe('nickname');
+    });
+
+    it('returns an error when the player is not found on FACEIT', async () => {
+        faceitService.getPlayerDetailsByNickname.mockResolvedValue(null);
+
+        const result = await handleCommand(COMMANDS.MYSTATS, 123, ['unknown_nick'], 'key');
+        expect(result).toContain('not found on FACEIT');
+        expect(result).toContain('unknown_nick');
+    });
+
+    it('sends a stats photo and returns null for a found player', async () => {
+        faceitService.getPlayerDetailsByNickname.mockResolvedValue({
+            playerId: 'p1', nickname: 's1mple', elo: 3000, skillLevel: 10,
+        });
+        faceitService.getLeaderboardStats.mockResolvedValue([{ nickname: 's1mple', adr: 90 }]);
+
+        const result = await handleCommand(COMMANDS.MYSTATS, 123, ['s1mple'], 'key');
+
+        expect(faceitService.getLeaderboardStats).toHaveBeenCalledWith(
+            'key', [{ id: 'p1', nickname: 's1mple' }], 10
+        );
+        expect(telegramService.sendPhoto).toHaveBeenCalledWith(123, FAKE_IMAGE);
+        expect(result).toBeNull();
+    });
+
+    it('uses custom match count from second argument', async () => {
+        faceitService.getPlayerDetailsByNickname.mockResolvedValue({
+            playerId: 'p1', nickname: 's1mple',
+        });
+        faceitService.getLeaderboardStats.mockResolvedValue([{ nickname: 's1mple', adr: 90 }]);
+
+        await handleCommand(COMMANDS.MYSTATS, 123, ['s1mple', '25'], 'key');
+
+        expect(faceitService.getLeaderboardStats).toHaveBeenCalledWith(
+            'key', expect.any(Array), 25
+        );
+    });
+
+    it('uses default count when N argument is out of range', async () => {
+        faceitService.getPlayerDetailsByNickname.mockResolvedValue({
+            playerId: 'p1', nickname: 's1mple',
+        });
+        faceitService.getLeaderboardStats.mockResolvedValue([{ nickname: 's1mple', adr: 90 }]);
+
+        await handleCommand(COMMANDS.MYSTATS, 123, ['s1mple', '200'], 'key');
+
+        expect(faceitService.getLeaderboardStats).toHaveBeenCalledWith(
+            'key', expect.any(Array), 10
+        );
+    });
+
+    it('returns error message when leaderboard comes back empty', async () => {
+        faceitService.getPlayerDetailsByNickname.mockResolvedValue({
+            playerId: 'p1', nickname: 's1mple',
+        });
+        faceitService.getLeaderboardStats.mockResolvedValue([]);
+
+        const result = await handleCommand(COMMANDS.MYSTATS, 123, ['s1mple'], 'key');
+        expect(result).toContain('Не удалось загрузить');
     });
 });
 

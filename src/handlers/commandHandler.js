@@ -13,6 +13,37 @@ function forceReply(commandKey) {
     return { type: 'force_reply', prompt: cmd.prompt, placeholder: cmd.placeholder };
 }
 
+async function handleMyStats(chatId, args, apiKey) {
+    if (args.length === 0) {
+        return forceReply('MYSTATS');
+    }
+
+    const nickname = args[0];
+
+    let matchesCount = config.last_matches || 10;
+    if (args.length > 1) {
+        const parsedCount = parseInt(args[1], 10);
+        if (!isNaN(parsedCount) && parsedCount >= 2 && parsedCount <= 100) {
+            matchesCount = parsedCount;
+        }
+    }
+
+    const player = await getPlayerDetailsByNickname(apiKey, nickname);
+    if (!player) {
+        return `❌ Player <b>${escapeHtml(nickname)}</b> not found on FACEIT.`;
+    }
+
+    const leaderboard = await getLeaderboardStats(apiKey, [{ id: player.playerId, nickname: player.nickname }], matchesCount);
+
+    if (!leaderboard || leaderboard.length === 0) {
+        return `❌ Не удалось загрузить статистику для <b>${escapeHtml(player.nickname)}</b>.`;
+    }
+
+    const imageBuffer = await generateStatsImage(leaderboard, matchesCount);
+    await sendPhoto(chatId, imageBuffer);
+    return null;
+}
+
 async function handleStats(chatId, args, apiKey) {
     const players = await storageService.getPlayers(chatId);
 
@@ -174,6 +205,8 @@ async function handleCommand(command, chatId, args, apiKey, chatName) {
     switch (command) {
         case COMMANDS.STATS:
             return handleStats(chatId, args, apiKey);
+        case COMMANDS.MYSTATS:
+            return handleMyStats(chatId, args, apiKey);
         case COMMANDS.ADD_PLAYER:
             return handleAddPlayer(chatId, args, apiKey, chatName);
         case COMMANDS.REMOVE_PLAYER:
