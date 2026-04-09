@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2020",
+    "types": ["jest"],
+    "checkJs": false
+  },
+  "include": [
+    "src/**/*",
+    "tests/**/*",
+    "scripts/**/*",
+    "index.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "coverage",
+    "public"
+  ]
+}
