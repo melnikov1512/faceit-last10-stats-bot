@@ -39,6 +39,7 @@ beforeEach(() => {
     imageService.generateStatsImage.mockResolvedValue(FAKE_IMAGE);
     imageService.generatePlayerCard.mockResolvedValue(FAKE_IMAGE);
     imageService.generatePlayersListImage.mockResolvedValue(FAKE_IMAGE);
+    imageService.generateActivityImage.mockResolvedValue(FAKE_IMAGE);
     telegramService.sendPhoto.mockResolvedValue();
     // default: empty player list (used by /add_player limit check)
     storageService.getPlayers.mockResolvedValue([]);
@@ -240,6 +241,78 @@ describe('/stats', () => {
 });
 
 // ---------------------------------------------------------------------------
+// /activity
+// ---------------------------------------------------------------------------
+
+describe('/activity', () => {
+    const FAKE_ACTIVITY = [{ nickname: 's1mple', matchCount: 42, wins: 28, losses: 14, winRate: 67, totalDurationSec: 90000, avgDurationSec: 2142 }];
+
+    it('returns rate-limit message when called too frequently', async () => {
+        rateLimiter.isRateLimited.mockReturnValueOnce(true);
+        const result = await handleCommand(COMMANDS.ACTIVITY, 123, [], 'key');
+        expect(result).toContain('⏳');
+        expect(faceitService.getActivityStats).not.toHaveBeenCalled();
+    });
+
+    it('returns "no players" message when the chat has no tracked players', async () => {
+        storageService.getPlayers.mockResolvedValue([]);
+        const result = await handleCommand(COMMANDS.ACTIVITY, 123, [], 'key');
+        expect(result).toContain('No players tracked');
+    });
+
+    it('serves from cache and skips getActivityStats on a cache hit', async () => {
+        const cachedBuf = Buffer.from('cached-activity');
+        statsCache.getCached.mockReturnValueOnce(cachedBuf);
+
+        const result = await handleCommand(COMMANDS.ACTIVITY, 123, [], 'key');
+
+        expect(faceitService.getActivityStats).not.toHaveBeenCalled();
+        expect(telegramService.sendPhoto).toHaveBeenCalledWith(123, cachedBuf);
+        expect(result).toBeNull();
+    });
+
+    it('fetches stats, caches and sends image on a cache miss', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 's1mple' }]);
+        faceitService.getActivityStats.mockResolvedValue(FAKE_ACTIVITY);
+
+        const result = await handleCommand(COMMANDS.ACTIVITY, 123, [], 'key');
+
+        expect(faceitService.getActivityStats).toHaveBeenCalledWith('key', expect.any(Array), 30);
+        expect(statsCache.setCached).toHaveBeenCalledWith('activity:123:30', FAKE_IMAGE);
+        expect(telegramService.sendPhoto).toHaveBeenCalledWith(123, FAKE_IMAGE);
+        expect(result).toBeNull();
+    });
+
+    it('uses custom days from argument (/activity 7)', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 's1mple' }]);
+        faceitService.getActivityStats.mockResolvedValue(FAKE_ACTIVITY);
+
+        await handleCommand(COMMANDS.ACTIVITY, 123, ['7'], 'key');
+
+        expect(faceitService.getActivityStats).toHaveBeenCalledWith('key', expect.any(Array), 7);
+        expect(statsCache.setCached).toHaveBeenCalledWith('activity:123:7', FAKE_IMAGE);
+    });
+
+    it('uses default 30 when argument is out of range (/activity 999)', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 's1mple' }]);
+        faceitService.getActivityStats.mockResolvedValue(FAKE_ACTIVITY);
+
+        await handleCommand(COMMANDS.ACTIVITY, 123, ['999'], 'key');
+
+        expect(faceitService.getActivityStats).toHaveBeenCalledWith('key', expect.any(Array), 30);
+    });
+
+    it('uses default 30 when argument is below 1 (/activity 0)', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 's1mple' }]);
+        faceitService.getActivityStats.mockResolvedValue(FAKE_ACTIVITY);
+
+        await handleCommand(COMMANDS.ACTIVITY, 123, ['0'], 'key');
+
+        expect(faceitService.getActivityStats).toHaveBeenCalledWith('key', expect.any(Array), 30);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // /add_player
 // ---------------------------------------------------------------------------
 
@@ -299,6 +372,8 @@ describe('/add_player', () => {
         await handleCommand(COMMANDS.ADD_PLAYER, 123, ['s1mple'], 'key', 'MyChat');
 
         expect(statsCache.invalidate).toHaveBeenCalledWith('123:');
+        expect(statsCache.invalidate).toHaveBeenCalledWith('activity:123:');
+        expect(statsCache.invalidate).toHaveBeenCalledTimes(2);
     });
 });
 
@@ -357,6 +432,8 @@ describe('/remove_player', () => {
         await handleCommand(COMMANDS.REMOVE_PLAYER, 123, ['s1mple'], 'key');
 
         expect(statsCache.invalidate).toHaveBeenCalledWith('123:');
+        expect(statsCache.invalidate).toHaveBeenCalledWith('activity:123:');
+        expect(statsCache.invalidate).toHaveBeenCalledTimes(2);
     });
 });
 

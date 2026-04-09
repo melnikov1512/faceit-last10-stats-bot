@@ -422,6 +422,99 @@ async function enrichMatchWithRosterElos(apiKey, match) {
     };
 }
 
+/**
+ * Fetch one page of a player's CS2 match history.
+ * @param {object} apiClient  Axios instance
+ * @param {string} playerId
+ * @param {number} fromTs  Unix timestamp (seconds) — lower bound
+ * @param {number} toTs    Unix timestamp (seconds) — upper bound
+ * @param {number} limit   Items per page (max 100)
+ * @param {number} offset  Pagination offset
+ * @returns {Promise<Array>} Array of MatchHistory items, or [] on error
+ */
+async function getPlayerHistoryPage(apiClient, playerId, fromTs, toTs, limit, offset) {
+    try {
+        const response = await apiClient.get(`/players/${playerId}/history`, {
+            params: { game: GAME, from: fromTs, to: toTs, limit, offset },
+        });
+        return response.data?.items ?? [];
+    } catch (error) {
+        console.error(`Error fetching history for player ${playerId} (offset ${offset}):`, error.message);
+        return [];
+    }
+}
+
+/**
+ * Compute activity stats for each player over the last `days` days.
+ * Fetches up to 200 matches per player (2 pages of 100, in parallel).
+ * @param {string} apiKey
+ * @param {Array<{ id: string, nickname: string }>} players
+ * @param {number} days
+ * @returns {Promise<Array<{
+ *   nickname: string,
+ *   matchCount: number,
+ *   wins: number,
+ *   losses: number,
+ *   winRate: number,
+ *   totalDurationSec: number,
+ *   avgDurationSec: number,
+ * }>>} Sorted by matchCount descending
+ */
+async function getActivityStats(apiKey, players, days) {
+    if (!apiKey) throw new Error('API Key is required');
+    const apiClient = getApiClient(apiKey);
+    const toTs   = Math.floor(Date.now() / 1000);
+    const fromTs = Math.floor((Date.now() - days * 86400 * 1000) / 1000);
+
+    const results = await processInChunks(players, 10, async ({ id: playerId, nickname }) => {
+        // Fetch two pages in parallel (page2 returns [] if fewer than 100 matches exist)
+        const [page1, page2] = await Promise.all([
+            getPlayerHistoryPage(apiClient, playerId, fromTs, toTs, 100, 0),
+            getPlayerHistoryPage(apiClient, playerId, fromTs, toTs, 100, 100),
+        ]);
+        const items = [...page1, ...page2];
+
+        let wins             = 0;
+        let losses           = 0;
+        let totalDurationSec = 0;
+
+        for (const match of items) {
+            // Find which faction the player belongs to
+            const teams = match.teams || {};
+            let playerFaction = null;
+            for (const [factionKey, factionData] of Object.entries(teams)) {
+                if ((factionData.players || []).some(p => p.player_id === playerId)) {
+                    playerFaction = factionKey;
+                    break;
+                }
+            }
+
+            // Record win/loss
+            const winner = match.results?.winner;
+            if (playerFaction && winner) {
+                if (playerFaction === winner) wins++;
+                else losses++;
+            }
+
+            // Accumulate real match duration; skip if timestamps are missing/invalid
+            const started  = match.started_at  ?? 0;
+            const finished = match.finished_at ?? 0;
+            if (started > 0 && finished > started) {
+                totalDurationSec += finished - started;
+            }
+        }
+
+        const matchCount     = items.length;
+        const winRate        = matchCount > 0 ? Math.round((wins / matchCount) * 100) : 0;
+        const avgDurationSec = matchCount > 0 ? Math.round(totalDurationSec / matchCount) : 0;
+
+        return { nickname, matchCount, wins, losses, winRate, totalDurationSec, avgDurationSec };
+    });
+
+    // Sort by matchCount descending
+    return results.sort((a, b) => b.matchCount - a.matchCount);
+}
+
 module.exports = {
     getLeaderboardStats,
     getPlayerDetails,
@@ -431,4 +524,5 @@ module.exports = {
     extractPlayerMatchStats,
     getLastMatchEloChange,
     enrichMatchWithRosterElos,
+    getActivityStats,
 };

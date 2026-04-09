@@ -1,4 +1,4 @@
-const { getLeaderboardStats, getPlayerDetailsByNickname, getPlayerDetails } = require('../services/faceitService');
+const { getLeaderboardStats, getPlayerDetailsByNickname, getPlayerDetails, getActivityStats } = require('../services/faceitService');
 const { collectMatchIds, fetchActiveMatchDetails } = require('../services/matchService');
 const { MATCH_STATUS_LABELS, MAX_PLAYERS_PER_CHAT } = require('../constants');
 const { escapeHtml } = require('../utils');
@@ -7,7 +7,7 @@ const { getCached, setCached, invalidate } = require('../services/statsCache');
 const config = require('../config');
 const storageService = require('../services/storageService');
 const { COMMANDS, COMMAND_LIST } = require('../commands');
-const { generateStatsImage, generatePlayerCard, generatePlayersListImage } = require('../services/imageService');
+const { generateStatsImage, generatePlayerCard, generatePlayersListImage, generateActivityImage } = require('../services/imageService');
 const { sendPhoto } = require('../services/telegramService');
 
 // Cool-down periods per command (milliseconds)
@@ -98,6 +98,40 @@ async function handleStats(chatId, args, apiKey) {
     return null;
 }
 
+async function handleActivity(chatId, args, apiKey) {
+    if (isRateLimited(`${chatId}:activity`, RATE_LIMIT_MS.STATS)) {
+        return '⏳ Подождите 30 секунд перед повторным запросом <code>/activity</code>.';
+    }
+
+    let days = 30;
+    if (args.length > 0) {
+        const parsed = parseInt(args[0], 10);
+        if (!isNaN(parsed) && parsed >= 1 && parsed <= 365) {
+            days = parsed;
+        }
+    }
+
+    // Check cache before any I/O — on hit, skip both Firestore and FACEIT calls
+    const cacheKey = `activity:${chatId}:${days}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+        await sendPhoto(chatId, cached);
+        return null;
+    }
+
+    const players = await storageService.getPlayers(chatId);
+    if (players.length === 0) {
+        return `⚠️ No players tracked in this chat. Use <code>${COMMANDS.ADD_PLAYER} &lt;nickname&gt;</code> to start.`;
+    }
+
+    const activityData = await getActivityStats(apiKey, players, days);
+    const imageBuffer  = await generateActivityImage(activityData, days);
+    setCached(cacheKey, imageBuffer);
+    await sendPhoto(chatId, imageBuffer);
+
+    return null;
+}
+
 async function handlePlayers(chatId, apiKey) {
     if (isRateLimited(`${chatId}:players`, RATE_LIMIT_MS.PLAYERS)) {
         return '⏳ Подождите 10 секунд перед повторным запросом <code>/players</code>.';
@@ -145,6 +179,7 @@ async function handleAddPlayer(chatId, args, apiKey, chatName) {
     await storageService.subscribeChat(chatId, player.playerId, player.nickname);
 
     invalidate(`${chatId}:`);
+    invalidate(`activity:${chatId}:`);
     console.log(`[ADD_PLAYER] Chat ${chatId} added and subscribed to "${player.nickname}" (${player.playerId})`);
 
     const imageBuffer = await generatePlayerCard(player, 'added');
@@ -170,6 +205,7 @@ async function handleRemovePlayer(chatId, args, apiKey) {
     await storageService.unsubscribeChat(chatId, player.id);
 
     invalidate(`${chatId}:`);
+    invalidate(`activity:${chatId}:`);
 
     const details = await getPlayerDetails(apiKey, player.id).catch(() => ({
         playerId: player.id, nickname: player.nickname, avatar: null, elo: null, skillLevel: null,
@@ -238,6 +274,8 @@ async function handleCommand(command, chatId, args, apiKey, chatName) {
     switch (command) {
         case COMMANDS.STATS:
             return handleStats(chatId, args, apiKey);
+        case COMMANDS.ACTIVITY:
+            return handleActivity(chatId, args, apiKey);
         case COMMANDS.MYSTATS:
             return handleMyStats(chatId, args, apiKey);
         case COMMANDS.ADD_PLAYER:

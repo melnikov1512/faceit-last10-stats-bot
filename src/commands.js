@@ -16,6 +16,12 @@ const COMMAND_LIST = [
         description: 'Статистика за последние N матчей (по умолч. 10, диапазон 2–100)',
     },
     {
+        key:         'ACTIVITY',
+        command:     '/activity',
+        args:        '[days]',
+        description: 'Активность игроков за N дней (по умолч. 30, диапазон 1–365)',
+    },
+    {
         key:         'MYSTATS',
         command:     '/mystats',
         args:        '<nickname> [N]',

@@ -32,12 +32,13 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     res.json(replyPayload);
     ```
 - **Stats Module**: `src/services/faceitService.js`. Calculates average stats (ADR, K/D, kills, ELO, ELO change) from the last N matches.
-- **Stats Cache Module**: `src/services/statsCache.js`. In-memory TTL cache for `/stats` PNG buffers.
+    - **Additional export**: `getActivityStats(apiKey, players, days)` — fetches match history for each player via `GET /players/{id}/history?game=cs2&from=…&to=…` (up to 200 matches per player, 2 pages of 100 in parallel). Returns `Array<{ nickname, matchCount, wins, losses, winRate, totalDurationSec, avgDurationSec }>` sorted by `matchCount` descending. Used by `handleActivity` in `commandHandler.js`.
+- **Stats Cache Module**: `src/services/statsCache.js`. In-memory TTL cache for `/stats` and `/activity` PNG buffers.
     - `getCached(key) → Buffer|null` — returns cached buffer if not expired, else `null`.
     - `setCached(key, data, ttlMs = 5 * 60 * 1000)` — stores buffer with TTL (default 5 min).
-    - `invalidate(prefix)` — removes all entries whose key starts with `prefix`. Used by `handleAddPlayer`/`handleRemovePlayer` with `"${chatId}:"` to flush all matchesCount variants.
+    - `invalidate(prefix)` — removes all entries whose key starts with `prefix`. Used by `handleAddPlayer`/`handleRemovePlayer` with `"${chatId}:"` (stats) and `"activity:${chatId}:"` (activity) to flush all variants.
     - `_reset()` — clears entire cache (tests only).
-    - Cache key format: `${chatId}:${matchesCount}`. Checked **before** Firestore and FACEIT API calls — on hit, both are skipped entirely.
+    - Cache key formats: `${chatId}:${matchesCount}` for `/stats`; `activity:${chatId}:${days}` for `/activity`. Checked **before** Firestore and FACEIT API calls — on hit, both are skipped entirely.
 - **Image Module**: `src/services/imageService.js`. Generates FACEIT-styled PNGs using `@napi-rs/canvas`. Exports:
     - `generateStatsImage(leaderboard, matchesCount) → Promise<Buffer>` — stats leaderboard card (720px wide).
     - `generateMatchImage(matchInfo) → Promise<Buffer>` — match notification card (580px wide). Shows team names, ELO, win probability pill, tracked player highlights with orange accent. `matchInfo`: `{ team1, team2, competition, region, bestOf }` where each team is `{ name, elo, winProb, trackedPlayers[] }`.
@@ -47,6 +48,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - `_loadAvatar(url)` — private. Safely loads an avatar image; returns `null` on any error.
     - `generatePlayerCard(player, action) → Promise<Buffer>` — add/remove confirmation card (500px wide).
     - `generatePlayersListImage(players) → Promise<Buffer>` — tracked players list card (540px wide), sorted by ELO descending.
+    - `generateActivityImage(activityData, days) → Promise<Buffer>` — activity leaderboard card (720px wide). Columns: Player | Matches | Wins | Win% | Time. Shows avatar placeholder (initial letter), win rate colour-coded green/red, time formatted as "N ч M мин". `activityData`: `Array<{ nickname, matchCount, wins, losses, winRate, totalDurationSec, avgDurationSec }>` sorted by matchCount descending. Empty data shows "Нет данных".
     - **Fonts**: bundled Inter WOFF2 in `src/assets/fonts/` registered via `GlobalFonts` — identical rendering on macOS and Linux.
     - **Design tokens**: colour palette in `imageService.js` is aligned with `public/index.html` CSS variables — `pageBg:#121212`, `bg:#1E1E1E` (`--card`), `headerBg:#2A2A2A` (`--card2`), `separator:rgba(255,255,255,0.07)` (`--divider`), `positive:#52BC6A` (`--green`), `negative:#FF5757` (`--red`). Skill-badge colours (1–10) match the web-app skill-bar segments exactly (grey / green / gold / orange / brand-orange).
     - **Faceit API**: Uses v4 `/players?nickname={nick}&game=cs2`, `/players/{id}/games/cs2/stats?limit={N}`, and the unofficial ELO timeline endpoint `https://api.faceit.com/stats/v1/stats/time/users/{playerId}/games/cs2`. Match details fetched via `/matches/{matchId}` as fallback.
@@ -99,6 +101,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     | Command | Arguments | Purpose |
     |---|---|---|
     | `/stats` | `[N]` (2–100, default 10) | Show stats image for tracked players |
+    | `/activity` | `[days]` (1–365, default 30) | Show activity leaderboard (matches, wins, time) for tracked players |
     | `/mystats` | `<nickname> [N]` | Show stats image for any player (no tracking required) |
     | `/add_player` | `<nickname>` | Add player to tracking list and subscribe to match notifications |
     | `/remove_player` | `<nickname>` | Remove player from tracking list and unsubscribe from notifications |
@@ -178,7 +181,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/constants.js`: Shared runtime constants — `FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS`, `MAX_PLAYERS_PER_CHAT` (= 20).
 - `src/utils.js`: Shared utility functions — `escapeHtml`.
 - `src/utils/rateLimiter.js`: In-memory per-key rate limiter. `isRateLimited(key, limitMs) → boolean` — returns `true` if the key is within its cool-down window (and skips recording); `false` otherwise (records the call). Used by `commandHandler.js` to limit `/stats` (30 s), `/mystats` (30 s), `/players` (10 s) per chat. Stateless across GCF instances — protects warm-instance burst spam only. `_reset()` is exported for tests only.
-- `src/services/statsCache.js`: In-memory TTL cache for `/stats` PNG buffers. Key: `${chatId}:${matchesCount}`. Default TTL: 5 min. Exports `getCached`, `setCached`, `invalidate`, `_reset`. Invalidated by `handleAddPlayer`/`handleRemovePlayer` via `invalidate(`${chatId}:`)` so the next `/stats` always shows fresh data after a roster change.
+- `src/services/statsCache.js`: In-memory TTL cache for `/stats` and `/activity` PNG buffers. Key formats: `${chatId}:${matchesCount}` for stats; `activity:${chatId}:${days}` for activity. Default TTL: 5 min. Exports `getCached`, `setCached`, `invalidate`, `_reset`. Invalidated by `handleAddPlayer`/`handleRemovePlayer` with both `'${chatId}:'` and `'activity:${chatId}:'` to flush all cached variants on roster change.
 - `public/index.html`: Telegram Mini App web page — shows active matches with rosters, ELO, and live scores.
 - `config.json`: Master configuration file (default values; no secrets).
 - `scripts/` — development utilities:
@@ -210,7 +213,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 | `tests/unit/processMatchStats.test.js` | `processMatchStats` — null input, single map, multi-map accumulation, K/D & HS% edge cases |
 | `tests/unit/matchService.test.js` | `collectMatchIds` dedup logic; `fetchActiveMatchDetails` filtering & Firestore cleanup |
 | `tests/unit/storageService.test.js` | `markNotificationSent` / `markFinishNotificationSentForChat` — atomic `create()` contract: returns `true` on success, `false` on `ALREADY_EXISTS` (code 6), rethrows other errors; `expireAt` TTL field (7 days ±5 s); regression `getRecentMatchIdsForPlayers` with `expireAt` field in docs |
-| `tests/integration/commandHandler.test.js` | All 7 commands: happy paths, error messages, `force_reply`, `web_app` result; cache-hit skips `getLeaderboardStats`; `invalidate` called on add/remove player |
+| `tests/integration/commandHandler.test.js` | All 8 commands: happy paths, error messages, `force_reply`, `web_app` result; cache-hit skips `getLeaderboardStats`; `invalidate` called on add/remove player (both stats and activity keys) |
 | `tests/integration/webhookHandler.test.js` | Telegram webhook routing: ignoring invalid updates, `@botname` stripping, ForceReply detection, group vs private response shapes |
 | `tests/integration/faceitWebhookHandler.test.js` | Secret validation (401), unsupported events, `match_status_ready` / `match_status_finished` dispatch, fire-and-forget error swallowing |
 | `tests/integration/apiHandler.test.js` | `GET /api/active-matches` and `GET /api/match` — 400/404/500 errors, success shapes, tracked-player marking, `matchStats` enrichment |

@@ -932,4 +932,184 @@ async function generateMatchResultsSummaryImage(playersData) {
     return canvas.toBuffer('image/png');
 }
 
-module.exports = { generateStatsImage, generateMatchImage, generateMatchResultImage, generateMatchResultsSummaryImage, generatePlayerCard, generatePlayersListImage };
+// ── Activity image (for /activity) ────────────────────────────────────────────
+
+const ACT_W        = 720;
+const ACT_PAD      = 28;
+const ACT_ACCENT_H = 5;
+const ACT_HEADER_H = 130;
+const ACT_ROW_H    = 68;
+const ACT_FOOTER_H = 42;
+const ACT_AVATAR_R = 20;
+
+const ACT_COLUMNS = [
+    { label: 'PLAYER',  w: 240, align: 'left'  },
+    { label: 'MATCHES', w: 80,  align: 'right' },
+    { label: 'WINS',    w: 80,  align: 'right' },
+    { label: 'WIN%',    w: 80,  align: 'right' },
+    { label: 'TIME',    w: 192, align: 'right' },
+];
+
+const ACT_COL_X = ACT_COLUMNS.map((_, i) =>
+    ACT_COLUMNS.slice(0, i).reduce((sum, c) => sum + c.w, ACT_PAD)
+);
+
+const ACT_AVATAR_CX  = ACT_PAD + ACT_AVATAR_R;
+const ACT_NAME_X     = ACT_PAD + ACT_AVATAR_R * 2 + 10;
+const ACT_NAME_MAX_W = ACT_COLUMNS[0].w - ACT_AVATAR_R * 2 - 10 - CELL_PAD;
+
+/**
+ * Format a duration in seconds to a human-readable Russian string.
+ * Examples: 3900 → "1 ч 5 мин"   2700 → "45 мин"
+ * @param {number} totalSec
+ * @returns {string}
+ */
+function formatDuration(totalSec) {
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    if (h > 0) return `${h} ч ${m} мин`;
+    return `${m} мин`;
+}
+
+/**
+ * Draw a right-aligned stat cell in the activity table.
+ */
+function drawActCell(ctx, text, colIndex, y, color = COLOR.text) {
+    ctx.fillStyle = color;
+    ctx.textAlign = 'right';
+    ctx.fillText(text, ACT_COL_X[colIndex] + ACT_COLUMNS[colIndex].w - CELL_PAD, y);
+}
+
+/**
+ * Generates a FACEIT-styled activity card as a PNG buffer.
+ * @param {Array<{
+ *   nickname: string,
+ *   matchCount: number,
+ *   wins: number,
+ *   losses: number,
+ *   winRate: number,
+ *   totalDurationSec: number,
+ *   avgDurationSec: number,
+ * }>} activityData  Sorted by matchCount descending
+ * @param {number} days  Period in days
+ * @returns {Promise<Buffer>}
+ */
+async function generateActivityImage(activityData, days) {
+    const rowCount = activityData.length;
+    const HEIGHT   = ACT_ACCENT_H + ACT_HEADER_H + Math.max(rowCount, 1) * ACT_ROW_H + ACT_FOOTER_H;
+
+    const canvas = createCanvas(ACT_W, HEIGHT);
+    const ctx    = canvas.getContext('2d');
+
+    ctx.fillStyle = COLOR.bg;
+    ctx.fillRect(0, 0, ACT_W, HEIGHT);
+
+    // ── Header gradient + accent bar ──────────────────────────────────────────
+    const hdrGrad = ctx.createLinearGradient(0, 0, 0, ACT_ACCENT_H + ACT_HEADER_H);
+    hdrGrad.addColorStop(0, COLOR.headerBg);
+    hdrGrad.addColorStop(1, '#222222');
+    ctx.fillStyle = hdrGrad;
+    ctx.fillRect(0, 0, ACT_W, ACT_ACCENT_H + ACT_HEADER_H);
+
+    ctx.fillStyle = COLOR.accent;
+    ctx.fillRect(0, 0, ACT_W, ACT_ACCENT_H);
+
+    // Title + subtitle
+    ctx.fillStyle    = COLOR.text;
+    ctx.font         = FONT.title;
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('FACEIT ACTIVITY', ACT_PAD, ACT_ACCENT_H + 52);
+
+    ctx.fillStyle = COLOR.subtext;
+    ctx.font      = FONT.subtitle;
+    ctx.fillText(`Last ${days} days · CS2`, ACT_PAD, ACT_ACCENT_H + 86);
+
+    // Column labels
+    const colLabelY = ACT_ACCENT_H + ACT_HEADER_H - 14;
+    ctx.font = FONT.colLabel;
+    ACT_COLUMNS.forEach((col, i) => {
+        ctx.fillStyle = COLOR.subtext;
+        if (i === 0) {
+            ctx.textAlign = 'left';
+            ctx.fillText(col.label, ACT_PAD, colLabelY);
+        } else {
+            ctx.textAlign = 'right';
+            ctx.fillText(col.label, ACT_COL_X[i] + col.w - CELL_PAD, colLabelY);
+        }
+    });
+
+    ctx.fillStyle = COLOR.separator;
+    ctx.fillRect(0, ACT_ACCENT_H + ACT_HEADER_H - 1, ACT_W, 1);
+
+    // ── Empty state ───────────────────────────────────────────────────────────
+    if (rowCount === 0) {
+        ctx.fillStyle    = COLOR.subtext;
+        ctx.font         = `22px ${FONT_FAMILY}`;
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Нет данных', ACT_W / 2, ACT_ACCENT_H + ACT_HEADER_H + ACT_ROW_H / 2);
+    }
+
+    // ── Rows ──────────────────────────────────────────────────────────────────
+    activityData.forEach((player, i) => {
+        const rowY  = ACT_ACCENT_H + ACT_HEADER_H + i * ACT_ROW_H;
+        const midY  = rowY + ACT_ROW_H / 2;
+        const textY = midY + 7;
+
+        ctx.fillStyle = i % 2 === 0 ? COLOR.bg : COLOR.rowAlt;
+        ctx.fillRect(0, rowY, ACT_W, ACT_ROW_H);
+
+        ctx.fillStyle = COLOR.separator;
+        ctx.fillRect(0, rowY + ACT_ROW_H - 1, ACT_W, 1);
+
+        // Avatar placeholder
+        drawAvatarPlaceholder(ctx, player.nickname[0], ACT_AVATAR_CX, midY, ACT_AVATAR_R);
+
+        // Nickname
+        ctx.fillStyle    = COLOR.text;
+        ctx.font         = `bold 20px ${FONT_FAMILY}`;
+        ctx.textAlign    = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText(truncateText(ctx, player.nickname, ACT_NAME_MAX_W), ACT_NAME_X, textY);
+
+        ctx.font = `20px ${FONT_FAMILY}`;
+
+        // Matches
+        drawActCell(ctx, String(player.matchCount), 1, textY);
+
+        // Wins (green)
+        const winsColor = player.wins > 0 ? COLOR.positive : COLOR.subtext;
+        drawActCell(ctx, String(player.wins), 2, textY, winsColor);
+
+        // Win%
+        const winRateColor = player.winRate >= 50 ? COLOR.positive : COLOR.negative;
+        drawActCell(ctx, `${player.winRate}%`, 3, textY, winRateColor);
+
+        // Time
+        const timeText = player.totalDurationSec > 0 ? formatDuration(player.totalDurationSec) : '—';
+        drawActCell(ctx, timeText, 4, textY, COLOR.subtext);
+    });
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+    const footerY = HEIGHT - ACT_FOOTER_H;
+    ctx.fillStyle = COLOR.headerBg;
+    ctx.fillRect(0, footerY, ACT_W, ACT_FOOTER_H);
+    ctx.fillStyle    = COLOR.subtext;
+    ctx.font         = `18px ${FONT_FAMILY}`;
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('FACEIT Stats Bot', ACT_W - ACT_PAD, footerY + ACT_FOOTER_H / 2 + 6);
+
+    return canvas.toBuffer('image/png');
+}
+
+module.exports = {
+    generateStatsImage,
+    generateMatchImage,
+    generateMatchResultImage,
+    generateMatchResultsSummaryImage,
+    generatePlayerCard,
+    generatePlayersListImage,
+    generateActivityImage,
+};
