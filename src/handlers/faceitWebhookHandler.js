@@ -4,14 +4,16 @@ const { handleMatchEvent, handleMatchFinishedEvent } = require('../services/subs
 const SUPPORTED_EVENTS = new Set(['match_status_ready', 'match_status_finished']);
 
 async function handleFaceitWebhook(req, res) {
-    // Verify webhook secret
+    // Verify webhook secret — always required
     const secret = config.faceit_webhook_secret;
-    if (secret) {
-        const incomingSecret = req.headers['x-faceit-webhook-secret'];
-        if (incomingSecret !== secret) {
-            console.warn('[FACEIT WEBHOOK] Unauthorized request — invalid secret');
-            return res.sendStatus(401);
-        }
+    if (!secret) {
+        console.error('[FACEIT WEBHOOK] FACEIT_WEBHOOK_SECRET is not configured — rejecting request with 403');
+        return res.sendStatus(403);
+    }
+    const incomingSecret = req.headers['x-faceit-webhook-secret'];
+    if (incomingSecret !== secret) {
+        console.warn('[FACEIT WEBHOOK] Unauthorized request — invalid secret');
+        return res.sendStatus(401);
     }
 
     const body = req.body;

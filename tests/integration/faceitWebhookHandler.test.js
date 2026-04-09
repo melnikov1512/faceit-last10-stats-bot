@@ -56,6 +56,35 @@ describe('secret validation', () => {
 });
 
 // ---------------------------------------------------------------------------
+// No secret configured
+// ---------------------------------------------------------------------------
+
+describe('no secret configured', () => {
+    let config;
+
+    beforeEach(() => {
+        config = require('../../src/config');
+        config.faceit_webhook_secret = undefined;
+    });
+
+    afterEach(() => {
+        config.faceit_webhook_secret = 'test-secret';
+    });
+
+    it('returns 403 when FACEIT_WEBHOOK_SECRET is not set', async () => {
+        const res = mockRes();
+        await handleFaceitWebhook({ headers: {}, body: {} }, res);
+        expect(res.sendStatus).toHaveBeenCalledWith(403);
+    });
+
+    it('returns 403 even when a secret header is provided', async () => {
+        const res = mockRes();
+        await handleFaceitWebhook(makeReq({ secret: 'any-secret' }), res);
+        expect(res.sendStatus).toHaveBeenCalledWith(403);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // Unsupported / missing events
 // ---------------------------------------------------------------------------
 

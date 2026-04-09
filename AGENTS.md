@@ -67,9 +67,10 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
         - `chats` — Document ID = `chatId`. Structure: `{ name: "Chat Name", players: [{ id: "faceit-uuid", nickname: "s1mple" }] }`.
         - `player_subscriptions` — Document ID = `playerId` (FACEIT GUID). Structure: `{ playerId, nickname, subscribedChats: [chatIds] }`.
         - `sent_match_notifications` — Three dedup variants:
-            - Start: `{matchId}_{chatId}` — Fields: `matchId`, `chatId`, `playerIds[]`, `sentAt`. `playerIds` enables cross-chat match lookup via `getRecentMatchIdsForPlayers`.
-            - Finish (chat-level): `{matchId}_{chatId}_finish` — Fields: `matchId`, `chatId`, `playerIds[]`, `type: 'finish_chat'`, `sentAt`.
+            - Start: `{matchId}_{chatId}` — Fields: `matchId`, `chatId`, `playerIds[]`, `sentAt`, `expireAt` (sentAt + 7 дней, используется для нативного TTL). `playerIds` enables cross-chat match lookup via `getRecentMatchIdsForPlayers`.
+            - Finish (chat-level): `{matchId}_{chatId}_finish` — Fields: `matchId`, `chatId`, `playerIds[]`, `type: 'finish_chat'`, `sentAt`, `expireAt` (sentAt + 7 дней).
             - Finish (per-player, legacy): `{matchId}_{chatId}_{playerId}_finish` — Fields: `matchId`, `chatId`, `playerId`, `type: 'finish'`, `sentAt`.
+            - **TTL**: Нативный Firestore TTL настроен на поле `expireAt`. Документы автоматически удаляются через 7 дней. Для (пере-)создания политики: `gcloud firestore fields ttls update expireAt --collection-group=sent_match_notifications --enable-ttl --project=<GCLOUD_PROJECT>`.
         - `active_matches` — Document ID = `{chatId}_{matchId}`. Structure: `{ chatId, matchId, startedAt }`. Written when a match-start notification is sent; deleted when the match finishes/is cancelled. Functions: `storeActiveMatch`, `getActiveMatchIds`, `removeActiveMatch`.
     - **Key function**: `getRecentMatchIdsForPlayers(playerIds, sinceTs)` — searches `sent_match_notifications` (where `playerIds` array-contains a tracked player) within a 6-hour window. Used by `matchService` as a cross-chat fallback to find active matches.
     - **Requirement**: Firestore database must be created in **Native Mode**.
@@ -78,7 +79,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - **Match Start** (`handleMatchEvent`): sends a match card image to all subscribed chats with team rosters, ELO, win probability. Also calls `storeActiveMatch(chatId, matchId)`.
     - **Match Finish** (`handleMatchFinishedEvent`): for each subscribed chat, fetches current ELO and match stats for all tracked players, then sends ONE aggregated image (`generateMatchResultsSummaryImage`) stacking per-player result cards vertically. Caption contains funny lines (from `getRandomFunnyMessage`) for players with ELO < 2000. Deduplication key: `${matchId}_${chatId}_finish` (chat-level). Also calls `removeActiveMatch`.
     - **Web App Button**: If `WEBAPP_URL` env var is set, both start and finish notifications include an inline button. **Groups** (negative chat ID + `BOT_USERNAME` set): `url` button → `https://t.me/{bot_username}?startapp={chatId}_{matchId}&mode=compact`. **Private chats**: `web_app` type button → `{WEBAPP_URL}?chatId={chatId}&matchId={matchId}`.
-    - **FACEIT Webhook Handler**: `src/handlers/faceitWebhookHandler.js` validates the `x-faceit-webhook-secret` header, responds `200` immediately, then processes the event asynchronously via `handleMatchEvent()` or `handleMatchFinishedEvent()`.
+    - **FACEIT Webhook Handler**: `src/handlers/faceitWebhookHandler.js` validates the `x-faceit-webhook-secret` header (**always required** — returns `403` if `FACEIT_WEBHOOK_SECRET` is not configured, `401` if the header doesn't match), responds `200` immediately, then processes the event asynchronously via `handleMatchEvent()` or `handleMatchFinishedEvent()`.
 - **Telegram Module**: `src/services/telegramService.js`. Sends messages to Telegram chats via Bot API (used for push notifications from FACEIT webhook events, not the webhook reply mechanism). Exports:
     - `sendMessage(chatId, text, replyMarkup?, options?)` — sends text. `options.parseMode` defaults to `'Markdown'`; `options.disableWebPagePreview` defaults to `true`.
     - `sendPhoto(chatId, imageBuffer, caption?, replyMarkup?)` — multipart/form-data upload; caption always uses `HTML` parse mode.
@@ -132,7 +133,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     |---|---|---|
     | `faceit_api_key` | `FACEIT_API_KEY` | FACEIT OpenAPI v4 Bearer token |
     | `telegram_bot_token` | `TELEGRAM_BOT_TOKEN` | Bot token |
-    | `faceit_webhook_secret` | `FACEIT_WEBHOOK_SECRET` | FACEIT webhook validation (optional) |
+    | `faceit_webhook_secret` | `FACEIT_WEBHOOK_SECRET` | FACEIT webhook validation (**required** — requests without it are rejected with 403) |
     | `projectId` | `GCLOUD_PROJECT` or `GOOGLE_CLOUD_PROJECT` | GCP project for Firestore |
     | `webapp_url` | `WEBAPP_URL` | Public HTTPS URL of the web app (e.g. `https://…/app`). Enables Mini App button in match notifications. |
     | `bot_username` | `BOT_USERNAME` | Telegram bot username (without `@`). Auto-populated at startup via `fetchBotUsername()` (`getMe` API). Required for group-chat Mini App `t.me` links. |
@@ -194,6 +195,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 | `tests/unit/matchFinishMessages.test.js` | `getRandomFunnyMessage` — placeholder replacement, edge ELO cases |
 | `tests/unit/processMatchStats.test.js` | `processMatchStats` — null input, single map, multi-map accumulation, K/D & HS% edge cases |
 | `tests/unit/matchService.test.js` | `collectMatchIds` dedup logic; `fetchActiveMatchDetails` filtering & Firestore cleanup |
+| `tests/unit/storageService.test.js` | `markNotificationSent` / `markFinishNotificationSentForChat` — наличие поля `expireAt` (TTL = 7 дней ±5 сек); регрессия `getRecentMatchIdsForPlayers` с `expireAt` в документах |
 | `tests/integration/commandHandler.test.js` | All 6 commands: happy paths, error messages, `force_reply`, `web_app` result |
 | `tests/integration/webhookHandler.test.js` | Telegram webhook routing: ignoring invalid updates, `@botname` stripping, ForceReply detection, group vs private response shapes |
 | `tests/integration/faceitWebhookHandler.test.js` | Secret validation (401), unsupported events, `match_status_ready` / `match_status_finished` dispatch, fire-and-forget error swallowing |

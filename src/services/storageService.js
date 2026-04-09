@@ -10,6 +10,14 @@ const playerSubscriptionsCollection = db.collection('player_subscriptions');
 const sentMatchNotificationsCollection = db.collection('sent_match_notifications');
 const activeMatchesCollection = db.collection('active_matches');
 
+// TTL for sent_match_notifications documents.
+// Firestore native TTL policy must be enabled on the `expireAt` field
+// (collection group: sent_match_notifications) via gcloud or Cloud Console.
+// Command: gcloud firestore fields ttls update expireAt \
+//   --collection-group=sent_match_notifications --enable-ttl --project=<GCLOUD_PROJECT>
+const NOTIFICATION_TTL_DAYS = 7;
+const NOTIFICATION_TTL_MS   = NOTIFICATION_TTL_DAYS * 24 * 60 * 60 * 1000;
+
 /**
  * Wraps a Firestore operation, converting the "database not found" error (code 5)
  * into a human-readable message so users know to create the database in Native Mode.
@@ -164,11 +172,15 @@ async function hasNotificationBeenSent(matchId, chatId) {
  */
 async function markNotificationSent(matchId, chatId, playerIds = []) {
     const docId = `${matchId}_${chatId}`;
+    const expireAt = new Firestore.Timestamp(
+        Math.floor((Date.now() + NOTIFICATION_TTL_MS) / 1000), 0
+    );
     await sentMatchNotificationsCollection.doc(docId).set({
         matchId,
         chatId: chatId.toString(),
         playerIds,
-        sentAt: Firestore.Timestamp.now()
+        sentAt: Firestore.Timestamp.now(),
+        expireAt,
     });
 }
 
@@ -192,12 +204,16 @@ async function hasFinishNotificationBeenSentForChat(matchId, chatId) {
  */
 async function markFinishNotificationSentForChat(matchId, chatId, playerIds = []) {
     const docId = `${matchId}_${chatId}_finish`;
+    const expireAt = new Firestore.Timestamp(
+        Math.floor((Date.now() + NOTIFICATION_TTL_MS) / 1000), 0
+    );
     await sentMatchNotificationsCollection.doc(docId).set({
         matchId,
         chatId: chatId.toString(),
         playerIds,
         type: 'finish_chat',
         sentAt: Firestore.Timestamp.now(),
+        expireAt,
     });
 }
 

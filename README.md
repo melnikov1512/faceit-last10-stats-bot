@@ -34,7 +34,7 @@ Create a `.env` file in the project root:
 FACEIT_API_KEY=your_faceit_api_key
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 GCLOUD_PROJECT=your_gcp_project_id          # or GOOGLE_CLOUD_PROJECT
-FACEIT_WEBHOOK_SECRET=your_webhook_secret   # optional, recommended
+FACEIT_WEBHOOK_SECRET=your_webhook_secret   # required — requests without it are rejected with 403
 GOOGLE_APPLICATION_CREDENTIALS=path/to/key.json  # local only
 WEBAPP_URL=https://your-domain/app          # optional — enables Mini App button
 BOT_USERNAME=your_bot_username              # optional — auto-fetched at startup
@@ -121,6 +121,9 @@ One-time setup in the [FACEIT Developer Portal → App Studio](https://developer
 3. Enable events: `match_status_ready`, `match_status_finished`
 4. Set **Callback URL** to `https://<your-function-url>/webhook/faceit`
 5. Add security header `x-faceit-webhook-secret` matching your `FACEIT_WEBHOOK_SECRET`
+
+> [!WARNING]
+> `FACEIT_WEBHOOK_SECRET` is **required**. If not set, the `/webhook/faceit` endpoint rejects all requests with `403 Forbidden`.
 
 > [!NOTE]
 > When a player is added via `/add_player`, they are automatically subscribed in Firestore. You still need to add their FACEIT GUID to the App Studio webhook subscription manually.
