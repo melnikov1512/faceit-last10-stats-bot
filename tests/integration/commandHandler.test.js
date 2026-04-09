@@ -5,6 +5,11 @@ jest.mock('../../src/services/storageService');
 jest.mock('../../src/services/imageService');
 jest.mock('../../src/services/telegramService');
 jest.mock('../../src/services/matchService');
+jest.mock('../../src/services/statsCache', () => ({
+    getCached:  jest.fn(() => null), // cache miss by default
+    setCached:  jest.fn(),
+    invalidate: jest.fn(),
+}));
 jest.mock('../../src/utils/rateLimiter', () => ({
     isRateLimited: jest.fn(() => false), // not limited by default
 }));
@@ -20,6 +25,7 @@ const faceitService  = require('../../src/services/faceitService');
 const imageService   = require('../../src/services/imageService');
 const telegramService = require('../../src/services/telegramService');
 const matchService   = require('../../src/services/matchService');
+const statsCache     = require('../../src/services/statsCache');
 const config         = require('../../src/config');
 const rateLimiter    = require('../../src/utils/rateLimiter');
 
@@ -202,6 +208,35 @@ describe('/stats', () => {
         const result = await handleCommand(COMMANDS.STATS, 123, [], 'key');
         expect(result).toContain('Failed to retrieve');
     });
+
+    it('serves from cache and skips getLeaderboardStats on a cache hit', async () => {
+        const cachedBuf = Buffer.from('cached-png');
+        statsCache.getCached.mockReturnValueOnce(cachedBuf);
+
+        const result = await handleCommand(COMMANDS.STATS, 123, [], 'key');
+
+        expect(faceitService.getLeaderboardStats).not.toHaveBeenCalled();
+        expect(telegramService.sendPhoto).toHaveBeenCalledWith(123, cachedBuf);
+        expect(result).toBeNull();
+    });
+
+    it('stores the generated image in the cache on a cache miss', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 's1mple' }]);
+        faceitService.getLeaderboardStats.mockResolvedValue([{ nickname: 's1mple', adr: 80 }]);
+
+        await handleCommand(COMMANDS.STATS, 123, [], 'key');
+
+        expect(statsCache.setCached).toHaveBeenCalledWith('123:10', FAKE_IMAGE);
+    });
+
+    it('uses the matchesCount in the cache key', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 's1mple' }]);
+        faceitService.getLeaderboardStats.mockResolvedValue([{ nickname: 's1mple', adr: 80 }]);
+
+        await handleCommand(COMMANDS.STATS, 123, ['25'], 'key');
+
+        expect(statsCache.setCached).toHaveBeenCalledWith('123:25', FAKE_IMAGE);
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -253,6 +288,18 @@ describe('/add_player', () => {
         expect(telegramService.sendPhoto).toHaveBeenCalled();
         expect(result).toBeNull();
     });
+
+    it('invalidates stats cache for the chat after adding a player', async () => {
+        faceitService.getPlayerDetailsByNickname.mockResolvedValue({
+            playerId: 'p1', nickname: 's1mple', elo: 3000, skillLevel: 10, avatar: null,
+        });
+        storageService.addPlayer.mockResolvedValue();
+        storageService.subscribeChat.mockResolvedValue();
+
+        await handleCommand(COMMANDS.ADD_PLAYER, 123, ['s1mple'], 'key', 'MyChat');
+
+        expect(statsCache.invalidate).toHaveBeenCalledWith('123:');
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -299,6 +346,17 @@ describe('/remove_player', () => {
 
         expect(storageService.removePlayer).toHaveBeenCalledWith(123, 'p1');
         expect(result).toBeNull();
+    });
+
+    it('invalidates stats cache for the chat after removing a player', async () => {
+        storageService.getPlayers.mockResolvedValue([{ id: 'p1', nickname: 's1mple' }]);
+        storageService.removePlayer.mockResolvedValue();
+        storageService.unsubscribeChat.mockResolvedValue();
+        faceitService.getPlayerDetails.mockResolvedValue({ playerId: 'p1', nickname: 's1mple', elo: 3000 });
+
+        await handleCommand(COMMANDS.REMOVE_PLAYER, 123, ['s1mple'], 'key');
+
+        expect(statsCache.invalidate).toHaveBeenCalledWith('123:');
     });
 });
 

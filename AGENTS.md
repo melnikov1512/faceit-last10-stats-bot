@@ -32,6 +32,12 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     res.json(replyPayload);
     ```
 - **Stats Module**: `src/services/faceitService.js`. Calculates average stats (ADR, K/D, kills, ELO, ELO change) from the last N matches.
+- **Stats Cache Module**: `src/services/statsCache.js`. In-memory TTL cache for `/stats` PNG buffers.
+    - `getCached(key) → Buffer|null` — returns cached buffer if not expired, else `null`.
+    - `setCached(key, data, ttlMs = 5 * 60 * 1000)` — stores buffer with TTL (default 5 min).
+    - `invalidate(prefix)` — removes all entries whose key starts with `prefix`. Used by `handleAddPlayer`/`handleRemovePlayer` with `"${chatId}:"` to flush all matchesCount variants.
+    - `_reset()` — clears entire cache (tests only).
+    - Cache key format: `${chatId}:${matchesCount}`. Checked **before** Firestore and FACEIT API calls — on hit, both are skipped entirely.
 - **Image Module**: `src/services/imageService.js`. Generates FACEIT-styled PNGs using `@napi-rs/canvas`. Exports:
     - `generateStatsImage(leaderboard, matchesCount) → Promise<Buffer>` — stats leaderboard card (720px wide).
     - `generateMatchImage(matchInfo) → Promise<Buffer>` — match notification card (580px wide). Shows team names, ELO, win probability pill, tracked player highlights with orange accent. `matchInfo`: `{ team1, team2, competition, region, bestOf }` where each team is `{ name, elo, winProb, trackedPlayers[] }`.
@@ -172,6 +178,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 - `src/constants.js`: Shared runtime constants — `FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS`, `MAX_PLAYERS_PER_CHAT` (= 20).
 - `src/utils.js`: Shared utility functions — `escapeHtml`.
 - `src/utils/rateLimiter.js`: In-memory per-key rate limiter. `isRateLimited(key, limitMs) → boolean` — returns `true` if the key is within its cool-down window (and skips recording); `false` otherwise (records the call). Used by `commandHandler.js` to limit `/stats` (30 s), `/mystats` (30 s), `/players` (10 s) per chat. Stateless across GCF instances — protects warm-instance burst spam only. `_reset()` is exported for tests only.
+- `src/services/statsCache.js`: In-memory TTL cache for `/stats` PNG buffers. Key: `${chatId}:${matchesCount}`. Default TTL: 5 min. Exports `getCached`, `setCached`, `invalidate`, `_reset`. Invalidated by `handleAddPlayer`/`handleRemovePlayer` via `invalidate(`${chatId}:`)` so the next `/stats` always shows fresh data after a roster change.
 - `public/index.html`: Telegram Mini App web page — shows active matches with rosters, ELO, and live scores.
 - `config.json`: Master configuration file (default values; no secrets).
 - `scripts/` — development utilities:
@@ -194,6 +201,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 | File | What it covers |
 |---|---|
 | `tests/unit/rateLimiter.test.js` | `isRateLimited` — first-call pass, second-call block, 0 ms expiry, independent keys, cross-chatId isolation, `_reset()` |
+| `tests/unit/statsCache.test.js` | `getCached`/`setCached`/`invalidate`/`_reset` — miss, hit, TTL expiry, stale-entry cleanup, prefix invalidation, cross-key isolation |
 | `tests/unit/utils.test.js` | `escapeHtml` — all HTML entity replacements, non-string input |
 | `tests/unit/constants.test.js` | `FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS` shape |
 | `tests/unit/commands.test.js` | `COMMAND_LIST` structure, `COMMANDS` map, `BOT_COMMANDS` derivation |
@@ -202,7 +210,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
 | `tests/unit/processMatchStats.test.js` | `processMatchStats` — null input, single map, multi-map accumulation, K/D & HS% edge cases |
 | `tests/unit/matchService.test.js` | `collectMatchIds` dedup logic; `fetchActiveMatchDetails` filtering & Firestore cleanup |
 | `tests/unit/storageService.test.js` | `markNotificationSent` / `markFinishNotificationSentForChat` — atomic `create()` contract: returns `true` on success, `false` on `ALREADY_EXISTS` (code 6), rethrows other errors; `expireAt` TTL field (7 days ±5 s); regression `getRecentMatchIdsForPlayers` with `expireAt` field in docs |
-| `tests/integration/commandHandler.test.js` | All 7 commands: happy paths, error messages, `force_reply`, `web_app` result |
+| `tests/integration/commandHandler.test.js` | All 7 commands: happy paths, error messages, `force_reply`, `web_app` result; cache-hit skips `getLeaderboardStats`; `invalidate` called on add/remove player |
 | `tests/integration/webhookHandler.test.js` | Telegram webhook routing: ignoring invalid updates, `@botname` stripping, ForceReply detection, group vs private response shapes |
 | `tests/integration/faceitWebhookHandler.test.js` | Secret validation (401), unsupported events, `match_status_ready` / `match_status_finished` dispatch, fire-and-forget error swallowing |
 | `tests/integration/apiHandler.test.js` | `GET /api/active-matches` and `GET /api/match` — 400/404/500 errors, success shapes, tracked-player marking, `matchStats` enrichment |

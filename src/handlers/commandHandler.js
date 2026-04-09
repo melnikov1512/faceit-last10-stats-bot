@@ -3,6 +3,7 @@ const { collectMatchIds, fetchActiveMatchDetails } = require('../services/matchS
 const { MATCH_STATUS_LABELS, MAX_PLAYERS_PER_CHAT } = require('../constants');
 const { escapeHtml } = require('../utils');
 const { isRateLimited } = require('../utils/rateLimiter');
+const { getCached, setCached, invalidate } = require('../services/statsCache');
 const config = require('../config');
 const storageService = require('../services/storageService');
 const { COMMANDS, COMMAND_LIST } = require('../commands');
@@ -61,18 +62,26 @@ async function handleStats(chatId, args, apiKey) {
         return '⏳ Подождите 30 секунд перед повторным запросом <code>/stats</code>.';
     }
 
-    const players = await storageService.getPlayers(chatId);
-
-    if (players.length === 0) {
-        return `⚠️ No players tracked in this chat. Use <code>${COMMANDS.ADD_PLAYER} &lt;nickname&gt;</code> to start.`;
-    }
-
     let matchesCount = config.last_matches || 10;
     if (args.length > 0) {
         const parsedCount = parseInt(args[0], 10);
         if (!isNaN(parsedCount) && parsedCount >= 2 && parsedCount <= 100) {
             matchesCount = parsedCount;
         }
+    }
+
+    // Check cache before any I/O — on hit, skip both Firestore and FACEIT calls
+    const cacheKey = `${chatId}:${matchesCount}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+        await sendPhoto(chatId, cached);
+        return null;
+    }
+
+    const players = await storageService.getPlayers(chatId);
+
+    if (players.length === 0) {
+        return `⚠️ No players tracked in this chat. Use <code>${COMMANDS.ADD_PLAYER} &lt;nickname&gt;</code> to start.`;
     }
 
     const leaderboard = await getLeaderboardStats(apiKey, players, matchesCount);
@@ -82,6 +91,7 @@ async function handleStats(chatId, args, apiKey) {
     }
 
     const imageBuffer = await generateStatsImage(leaderboard, matchesCount);
+    setCached(cacheKey, imageBuffer);
     await sendPhoto(chatId, imageBuffer);
 
     // Return null — photo already sent via direct API call; webhook reply not needed
@@ -134,6 +144,7 @@ async function handleAddPlayer(chatId, args, apiKey, chatName) {
     await storageService.addPlayer(chatId, { id: player.playerId, nickname: player.nickname }, chatName);
     await storageService.subscribeChat(chatId, player.playerId, player.nickname);
 
+    invalidate(`${chatId}:`);
     console.log(`[ADD_PLAYER] Chat ${chatId} added and subscribed to "${player.nickname}" (${player.playerId})`);
 
     const imageBuffer = await generatePlayerCard(player, 'added');
@@ -157,6 +168,8 @@ async function handleRemovePlayer(chatId, args, apiKey) {
 
     await storageService.removePlayer(chatId, player.id);
     await storageService.unsubscribeChat(chatId, player.id);
+
+    invalidate(`${chatId}:`);
 
     const details = await getPlayerDetails(apiKey, player.id).catch(() => ({
         playerId: player.id, nickname: player.nickname, avatar: null, elo: null, skillLevel: null,
