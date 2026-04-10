@@ -538,8 +538,7 @@ async function generatePlayerCard(player, action) {
 
     // Action label (top-right)
     const actionLabel = action === 'added' ? 'Player added' : 'Player removed';
-    const actionColor = action === 'added' ? COLOR.positive : COLOR.negative;
-    ctx.fillStyle    = actionColor;
+    ctx.fillStyle    = action === 'added' ? COLOR.positive : COLOR.negative;
     ctx.font         = `bold 13px ${FONT_FAMILY}`;
     ctx.textAlign    = 'right';
     ctx.textBaseline = 'alphabetic';
