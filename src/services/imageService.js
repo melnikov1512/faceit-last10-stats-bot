@@ -959,16 +959,18 @@ const ACT_NAME_X     = ACT_PAD + ACT_AVATAR_R * 2 + 10;
 const ACT_NAME_MAX_W = ACT_COLUMNS[0].w - ACT_AVATAR_R * 2 - 10 - CELL_PAD;
 
 /**
- * Format a duration in seconds to a human-readable Russian string.
- * Examples: 3900 → "1 ч 5 мин"   2700 → "45 мин"
+ * Format a duration in seconds to a human-readable string.
+ * Uses Latin abbreviations (h / min) so that the bundled Inter WOFF2 font
+ * (Latin-only subset) renders correctly without missing-glyph boxes.
+ * Examples: 3900 → "1h 5min"   2700 → "45min"
  * @param {number} totalSec
  * @returns {string}
  */
 function formatDuration(totalSec) {
     const h = Math.floor(totalSec / 3600);
     const m = Math.floor((totalSec % 3600) / 60);
-    if (h > 0) return `${h} ч ${m} мин`;
-    return `${m} мин`;
+    if (h > 0) return `${h}h ${m}min`;
+    return `${m}min`;
 }
 
 /**
@@ -1048,7 +1050,7 @@ async function generateActivityImage(activityData, days) {
         ctx.font         = `22px ${FONT_FAMILY}`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('Нет данных', ACT_W / 2, ACT_ACCENT_H + ACT_HEADER_H + ACT_ROW_H / 2);
+        ctx.fillText('No data', ACT_W / 2, ACT_ACCENT_H + ACT_HEADER_H + ACT_ROW_H / 2);
     }
 
     // ── Rows ──────────────────────────────────────────────────────────────────
