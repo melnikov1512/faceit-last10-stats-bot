@@ -411,33 +411,8 @@
             font-weight: 500;
         }
 
-        /* ── Skill level bar (10 segments) ── */
-        .skill-bar {
-            display: inline-flex;
-            align-items: center;
-            gap: 3px;
-            flex-shrink: 0;
-        }
-        .skill-bar-segs { display: flex; gap: 2px; }
-        .skill-bar-segs .seg {
-            width: 5px; height: 10px;
-            border-radius: 2px;
-            background: rgba(255,255,255,0.1);
-        }
-        .skill-bar.sl-1 .seg.filled,
-        .skill-bar.sl-2 .seg.filled,
-        .skill-bar.sl-3 .seg.filled { background: #888; }
-        .skill-bar.sl-4 .seg.filled,
-        .skill-bar.sl-5 .seg.filled,
-        .skill-bar.sl-6 .seg.filled { background: #5FBA53; }
-        .skill-bar.sl-7 .seg.filled,
-        .skill-bar.sl-8 .seg.filled { background: #FFC400; }
-        .skill-bar.sl-9 .seg.filled  { background: #FF8500; }
-        .skill-bar.sl-10 .seg.filled { background: #FF5500; }
-        .skill-bar-num {
-            font-size: 11px; font-weight: 700;
-            color: var(--text-sub); min-width: 10px;
-        }
+        /* ── Skill level badge (circular arc, matches PNG image style) ── */
+        .skill-badge { flex-shrink: 0; display: block; }
 
         /* ── Tracked badge ── */
         .tracked-dot {
@@ -614,7 +589,6 @@
             .player-row { gap: 7px; padding: 7px 10px; }
             .player-nick { font-size: 12px; }
             .player-elo-val { font-size: 11px; }
-            .skill-bar-segs .seg { width: 4px; height: 8px; }
             .vs-score-num { font-size: 26px; }
             .vs-score-num.winner { font-size: 32px; text-shadow: none; }
             .vs-team-name span { font-size: 13px; }
@@ -754,13 +728,42 @@
                 .map(w => w[0]?.toUpperCase() || '').join('');
         }
 
-        function renderSkillBar(level) {
+        // Skill level colour map — matches SKILL_COLOR in imageService.js exactly
+        const SKILL_COLORS = {
+            1:'#888888', 2:'#888888', 3:'#888888',
+            4:'#5FBA53', 5:'#5FBA53', 6:'#5FBA53',
+            7:'#FFC400', 8:'#FFC400',
+            9:'#FF8500', 10:'#FF5500',
+        };
+
+        /**
+         * Renders a circular FACEIT-style skill badge as an inline SVG.
+         * Mirrors drawSkillBadge() from imageService.js:
+         *  – dark background circle (#161616)
+         *  – 300° coloured arc (gap at bottom centre)
+         *  – coloured level number in the centre
+         */
+        function renderSkillBadge(level) {
             const l = parseInt(level);
-            if (!l) return '';
-            const segs = Array.from({length: 10}, (_, i) =>
-                `<span class="seg${i < l ? ' filled' : ''}"></span>`
-            ).join('');
-            return `<div class="skill-bar sl-${l}" role="img" aria-label="Skill level ${l} of 10"><div class="skill-bar-segs">${segs}</div><span class="skill-bar-num" aria-hidden="true">${l}</span></div>`;
+            if (!l || l < 1 || l > 10) return '';
+            const color   = SKILL_COLORS[l] || '#9E9E9E';
+            const r       = 15;                          // outer badge radius → 30×30 px
+            const size    = r * 2;
+            const cx = r, cy = r;
+            const lineW   = +(Math.max(2.5, r * 0.17)).toFixed(2);   // ≈ 2.55
+            const arcR    = +(r - lineW / 2).toFixed(2);             // ≈ 12.73
+            const circ    = 2 * Math.PI * arcR;
+            const arcLen  = +((300 / 360) * circ).toFixed(2);
+            const gapLen  = +(circ - arcLen).toFixed(2);
+            const fs      = Math.round(r * 0.82);                     // ≈ 12 px
+            return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="skill-badge" aria-label="Skill level ${l} of 10">`
+                + `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#161616"/>`
+                + `<circle cx="${cx}" cy="${cy}" r="${arcR}" fill="none"`
+                +  ` stroke="${color}" stroke-width="${lineW}" stroke-linecap="round"`
+                +  ` stroke-dasharray="${arcLen} ${gapLen}" transform="rotate(120,${cx},${cy})"/>`
+                + `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"`
+                +  ` fill="${color}" font-family="Inter,sans-serif" font-size="${fs}" font-weight="bold">${l}</text>`
+                + `</svg>`;
         }
 
         function statusLabel(status) {
@@ -802,7 +805,7 @@
             const nickClass = player.isTracked ? 'player-nick tracked' : 'player-nick';
             const elo = player.faceit_elo || '—';
             const sl = player.skill_level;
-            const badge = sl ? renderSkillBar(sl) : '';
+            const badge = sl ? renderSkillBadge(sl) : '';
             const trackedDot = player.isTracked ? `<span class="tracked-dot"></span>` : '';
             return `
                 <div class="player-row${player.isTracked ? ' tracked' : ''}">
