@@ -549,6 +549,10 @@
         .stats-kd-good { color: var(--green); }
         .stats-kd-bad  { color: var(--red); }
 
+        .stats-rating-good { color: var(--green); }
+        .stats-rating-avg  { color: var(--text);  }
+        .stats-rating-bad  { color: var(--red);   }
+
         
         .content-area { position: relative; }
 
@@ -908,13 +912,23 @@
         }
 
         function renderStatsTable(factionKey, factionName, players) {
-            const rows = Object.entries(players)
-                .filter(([, p]) => p.faction === factionKey)
-                .sort(([, a], [, b]) => b.kills - a.kills);
+            const entries = Object.entries(players)
+                .filter(([, p]) => p.faction === factionKey);
 
-            if (!rows.length) return '';
+            if (!entries.length) return '';
 
-            const kdClass = (kd) => parseFloat(kd) >= 1.0 ? 'stats-kd-good' : 'stats-kd-bad';
+            // Detect if FACEIT Rating is available for at least one player in this faction
+            const hasFaceitRating = entries.some(([, p]) => p.faceitRating != null);
+
+            // Sort: by faceitRating desc if available, else by kills desc
+            const rows = entries.sort(([, a], [, b]) =>
+                hasFaceitRating
+                    ? (b.faceitRating ?? -Infinity) - (a.faceitRating ?? -Infinity)
+                    : b.kills - a.kills
+            );
+
+            const kdClass     = (kd) => parseFloat(kd) >= 1.0 ? 'stats-kd-good' : 'stats-kd-bad';
+            const ratingClass = (r)  => r >= 1.1 ? 'stats-rating-good' : r < 0.9 ? 'stats-rating-bad' : 'stats-rating-avg';
 
             const trs = rows.map(([, p]) => {
                 const cls = p.isTracked ? ' class="tracked"' : '';
@@ -922,8 +936,16 @@
                     ? `<img class="stats-avatar" src="${p.avatar}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
                       + `<div class="stats-avatar-ph" style="display:none">${avatarInitial(p.nickname)}</div>`
                     : `<div class="stats-avatar-ph">${avatarInitial(p.nickname)}</div>`;
+
+                const ratingCell = hasFaceitRating
+                    ? (p.faceitRating != null
+                        ? `<td><span class="${ratingClass(p.faceitRating)}">${p.faceitRating.toFixed(2)}</span></td>`
+                        : `<td><span class="stats-rating-avg">—</span></td>`)
+                    : '';
+
                 return `<tr${cls}>
                     <td><div class="stats-player-cell">${avatarHtml}<span class="stats-player-name">${escHtml(p.nickname)}</span></div></td>
+                    ${ratingCell}
                     <td>${p.kills}</td>
                     <td>${p.deaths}</td>
                     <td>${p.assists}</td>
@@ -933,11 +955,13 @@
                 </tr>`;
             }).join('');
 
+            const ratingHeader = hasFaceitRating ? '<th>Rating</th>' : '';
+
             return `<div class="stats-team-block">
                 <div class="stats-team-title">${escHtml(factionName)}</div>
                 <table class="stats-table">
                     <thead><tr>
-                        <th>Игрок</th><th>K</th><th>D</th><th>A</th><th>ADR</th><th>K/D</th><th>HS%</th>
+                        <th>Игрок</th>${ratingHeader}<th>K</th><th>D</th><th>A</th><th>ADR</th><th>K/D</th><th>HS%</th>
                     </tr></thead>
                     <tbody>${trs}</tbody>
                 </table>

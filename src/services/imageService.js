@@ -54,8 +54,8 @@ const HEADER_TITLE_Y    = 58;
 const HEADER_SUBTITLE_Y = 96;
 const HEADER_COL_Y      = 140;
 
-// Column definitions
-const COLUMNS = [
+// Column definitions — base layout WITHOUT Rating column
+const COLUMNS_BASE = [
     { label: 'Player', w: 230, align: 'left'  },
     { label: 'ADR',    w: 80,  align: 'right' },
     { label: 'K/D',    w: 80,  align: 'right' },
@@ -64,17 +64,45 @@ const COLUMNS = [
     { label: '± ELO',  w: 100, align: 'right' },
 ];
 
-// Pre-computed column X positions (left edge of each column)
-const COL_X = COLUMNS.map((_, i) =>
-    COLUMNS.slice(0, i).reduce((sum, c) => sum + c.w, PADDING)
-);
+// Column definitions — with Rating as first stat column
+const COLUMNS_WITH_RATING = [
+    { label: 'Player',  w: 190, align: 'left'  },
+    { label: 'Rating',  w: 88,  align: 'right' },
+    { label: 'ADR',     w: 72,  align: 'right' },
+    { label: 'K/D',     w: 72,  align: 'right' },
+    { label: 'Kills',   w: 66,  align: 'right' },
+    { label: 'ELO',     w: 90,  align: 'right' },
+    { label: '± ELO',   w: 86,  align: 'right' },
+];
 
-// Avatar geometry (derived from layout constants)
-const AVATAR_R          = AVATAR_SIZE / 2;
-const AVATAR_CX_OFFSET  = CELL_PAD + AVATAR_R;   // from COL_X[0] to avatar centre
-const RANK_X            = COL_X[0] + CELL_PAD - AVATAR_GAP;  // right-aligned rank edge
-const NAME_X            = COL_X[0] + CELL_PAD + AVATAR_SIZE + AVATAR_GAP;
-const NAME_MAX_W        = COLUMNS[0].w - CELL_PAD - AVATAR_SIZE - AVATAR_GAP - CELL_PAD;
+// Active column set (set per-render inside generateStatsImage)
+let COLUMNS = COLUMNS_BASE;
+
+// Pre-computed column X positions (left edge of each column)
+// Recalculated when COLUMNS changes via getColX()
+function getColX(cols) {
+    return cols.map((_, i) => cols.slice(0, i).reduce((sum, c) => sum + c.w, PADDING));
+}
+
+// Legacy aliases used by drawRow / drawHeader — updated per render
+let COL_X = getColX(COLUMNS_BASE);
+
+// Avatar geometry (derived from layout constants, based on Player column width)
+const AVATAR_R = AVATAR_SIZE / 2;
+// These are recalculated per-render inside generateStatsImage via getAvatarGeometry()
+function getAvatarGeometry(colX) {
+    return {
+        avatarCxOffset: CELL_PAD + AVATAR_R,
+        rankX:          colX[0] + CELL_PAD - AVATAR_GAP,
+        nameX:          colX[0] + CELL_PAD + AVATAR_SIZE + AVATAR_GAP,
+        nameMaxW:       COLUMNS[0].w - CELL_PAD - AVATAR_SIZE - AVATAR_GAP - CELL_PAD,
+    };
+}
+// Fallback for non-stats image functions (activity, players list, etc.)
+const AVATAR_CX_OFFSET  = CELL_PAD + AVATAR_R;
+const RANK_X            = getColX(COLUMNS_BASE)[0] + CELL_PAD - AVATAR_GAP;
+const NAME_X            = getColX(COLUMNS_BASE)[0] + CELL_PAD + AVATAR_SIZE + AVATAR_GAP;
+const NAME_MAX_W        = COLUMNS_BASE[0].w - CELL_PAD - AVATAR_SIZE - AVATAR_GAP - CELL_PAD;
 
 // ── Drawing primitives ────────────────────────────────────────────────────────
 
@@ -155,9 +183,17 @@ function drawHeader(ctx, matchesCount) {
     ctx.fillRect(0, HEADER_H - 1, WIDTH, 1);
 }
 
-function drawRow(ctx, player, rowIndex, avatar) {
+function getRatingColor(rating) {
+    if (rating == null) return COLOR.subtext;
+    if (rating >= 1.1)  return COLOR.positive;
+    if (rating < 0.9)   return COLOR.negative;
+    return COLOR.text;
+}
+
+function drawRow(ctx, player, rowIndex, avatar, matchesCount) {
     const rowY  = HEADER_H + rowIndex * ROW_H;
     const textY = rowY + ROW_H / 2 + 8;
+    const geo   = getAvatarGeometry(COL_X);
 
     ctx.fillStyle = rowIndex % 2 === 0 ? COLOR.bg : COLOR.rowAlt;
     ctx.fillRect(0, rowY, WIDTH, ROW_H);
@@ -165,7 +201,7 @@ function drawRow(ctx, player, rowIndex, avatar) {
     ctx.fillStyle = COLOR.separator;
     ctx.fillRect(0, rowY + ROW_H - 1, WIDTH, 1);
 
-    const avatarCx = COL_X[0] + AVATAR_CX_OFFSET;
+    const avatarCx = COL_X[0] + geo.avatarCxOffset;
     const avatarCy = rowY + ROW_H / 2;
     if (avatar) {
         drawCircularAvatar(ctx, avatar, avatarCx, avatarCy, AVATAR_R);
@@ -176,26 +212,49 @@ function drawRow(ctx, player, rowIndex, avatar) {
     ctx.fillStyle = rowIndex === 0 ? COLOR.accent : COLOR.subtext;
     ctx.font      = FONT.rank;
     ctx.textAlign = 'right';
-    ctx.fillText(String(rowIndex + 1), RANK_X, textY);
+    ctx.fillText(String(rowIndex + 1), geo.rankX, textY);
 
     ctx.fillStyle = COLOR.text;
     ctx.font      = FONT.playerName;
     ctx.textAlign = 'left';
-    ctx.fillText(truncateText(ctx, player.nickname, NAME_MAX_W), NAME_X, textY);
+    ctx.fillText(truncateText(ctx, player.nickname, geo.nameMaxW), geo.nameX, textY);
 
     ctx.font = FONT.statCell;
-    drawStatCell(ctx, parseFloat(player.average_damage_per_round).toFixed(1), 1, textY);
-    drawStatCell(ctx, parseFloat(player.kills_deaths_ratio).toFixed(2),       2, textY);
-    drawStatCell(ctx, parseFloat(player.average_kills).toFixed(1),            3, textY);
-    drawStatCell(ctx, player.current_elo != null ? String(player.current_elo) : '—', 4, textY, COLOR.subtext);
 
-    const eloText  = player.elo_change != null
-        ? `${player.elo_change >= 0 ? '+' : ''}${player.elo_change}`
-        : '—';
-    const eloColor = player.elo_change > 0 ? COLOR.positive
-                   : player.elo_change < 0 ? COLOR.negative
-                   : COLOR.subtext;
-    drawStatCell(ctx, eloText, 5, textY, eloColor);
+    const hasRatingCol = COLUMNS.length > 6; // 7 columns = Rating mode
+
+    if (hasRatingCol) {
+        // COLUMNS: Player(0) Rating(1) ADR(2) K/D(3) Kills(4) ELO(5) ±ELO(6)
+        const r        = player.avg_faceit_rating;
+        const rCount   = player.faceit_rating_matches ?? 0;
+        const rText    = r != null ? `${r.toFixed(2)} (${rCount})` : '—';
+        const rColor   = getRatingColor(r);
+        drawStatCell(ctx, rText,                                                    1, textY, rColor);
+        drawStatCell(ctx, parseFloat(player.average_damage_per_round).toFixed(1),   2, textY);
+        drawStatCell(ctx, parseFloat(player.kills_deaths_ratio).toFixed(2),          3, textY);
+        drawStatCell(ctx, parseFloat(player.average_kills).toFixed(1),               4, textY);
+        drawStatCell(ctx, player.current_elo != null ? String(player.current_elo) : '—', 5, textY, COLOR.subtext);
+        const eloText  = player.elo_change != null
+            ? `${player.elo_change >= 0 ? '+' : ''}${player.elo_change}`
+            : '—';
+        const eloColor = player.elo_change > 0 ? COLOR.positive
+                       : player.elo_change < 0 ? COLOR.negative
+                       : COLOR.subtext;
+        drawStatCell(ctx, eloText, 6, textY, eloColor);
+    } else {
+        // COLUMNS: Player(0) ADR(1) K/D(2) Kills(3) ELO(4) ±ELO(5)
+        drawStatCell(ctx, parseFloat(player.average_damage_per_round).toFixed(1), 1, textY);
+        drawStatCell(ctx, parseFloat(player.kills_deaths_ratio).toFixed(2),       2, textY);
+        drawStatCell(ctx, parseFloat(player.average_kills).toFixed(1),            3, textY);
+        drawStatCell(ctx, player.current_elo != null ? String(player.current_elo) : '—', 4, textY, COLOR.subtext);
+        const eloText  = player.elo_change != null
+            ? `${player.elo_change >= 0 ? '+' : ''}${player.elo_change}`
+            : '—';
+        const eloColor = player.elo_change > 0 ? COLOR.positive
+                       : player.elo_change < 0 ? COLOR.negative
+                       : COLOR.subtext;
+        drawStatCell(ctx, eloText, 5, textY, eloColor);
+    }
 }
 
 function drawFooter(ctx, playerCount) {
@@ -226,6 +285,11 @@ async function loadAvatars(leaderboard) {
  * @returns {Promise<Buffer>}
  */
 async function generateStatsImage(leaderboard, matchesCount) {
+    // Choose column layout: use Rating column if at least one player has rating data
+    const showRating = leaderboard.some(p => p.avg_faceit_rating != null);
+    COLUMNS = showRating ? COLUMNS_WITH_RATING : COLUMNS_BASE;
+    COL_X   = getColX(COLUMNS);
+
     const avatars = await loadAvatars(leaderboard);
 
     const canvas = createCanvas(WIDTH, HEADER_H + leaderboard.length * ROW_H + FOOTER_H);
@@ -235,7 +299,7 @@ async function generateStatsImage(leaderboard, matchesCount) {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     drawHeader(ctx, matchesCount);
-    leaderboard.forEach((player, i) => drawRow(ctx, player, i, avatars[i]));
+    leaderboard.forEach((player, i) => drawRow(ctx, player, i, avatars[i], matchesCount));
     drawFooter(ctx, leaderboard.length);
 
     return canvas.toBuffer('image/png');

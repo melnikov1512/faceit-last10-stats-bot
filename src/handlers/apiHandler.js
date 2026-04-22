@@ -1,5 +1,5 @@
 const storageService = require('../services/storageService');
-const { getMatchDetails, enrichMatchWithRosterElos, getMatchStats } = require('../services/faceitService');
+const { getMatchDetails, enrichMatchWithRosterElos, getMatchStats, getMatchScoreboardRatings } = require('../services/faceitService');
 const { collectMatchIds, fetchActiveMatchDetails } = require('../services/matchService');
 const { MATCH_URL_BASE } = require('../constants');
 const config = require('../config');
@@ -218,6 +218,19 @@ async function getMatch(req, res) {
                     p.isTracked = trackedPlayerIds.has(pid);
                     if (avatarByPlayerId.has(pid)) p.avatar = avatarByPlayerId.get(pid);
                 }
+
+                // Enrich with FACEIT Rating from unofficial scoreboard API (graceful fallback)
+                try {
+                    const bestOf       = match.best_of ?? 1;
+                    const ratingMap    = await getMatchScoreboardRatings(matchId, bestOf);
+                    for (const [pid, p] of Object.entries(stats.players)) {
+                        const r = ratingMap.get(pid);
+                        p.faceitRating = (typeof r === 'number' && r > 0) ? r : null;
+                    }
+                } catch (rErr) {
+                    console.error(`[API] Could not fetch scoreboard ratings for ${matchId}:`, rErr.message);
+                }
+
                 formatted.matchStats = stats;
             }
         }

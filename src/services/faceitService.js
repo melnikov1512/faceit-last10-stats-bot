@@ -3,6 +3,8 @@ const axios = require('axios');
 const BASE_URL       = 'https://open.faceit.com/data/v4';
 // Unofficial stats API — public endpoint, NO Authorization header allowed
 const STATS_BASE_URL = 'https://api.faceit.com/stats/v1';
+// Unofficial scoreboard API — provides FACEIT Rating (Season 8+)
+const SCOREBOARD_BASE_URL = 'https://www.faceit.com/api/statistics/v1/cs2/matches';
 const GAME = 'cs2';
 
 // Wide time range for ELO timeline queries — known to work (from FACEIT Discord community).
@@ -141,6 +143,66 @@ async function getPlayerEloTimeline(playerId, limit) {
 }
 
 /**
+ * Fetch FACEIT Rating for each player in a match from the unofficial scoreboard API.
+ * FACEIT Rating is computed asynchronously after match finish — may be null for recent matches.
+ *
+ * For bo1: fetches round 1 only.
+ * For bo3/bo5: fetches all rounds in parallel and averages the rating across maps per player.
+ *
+ * @param {string} matchId
+ * @param {number} [bestOf=1]  Number of maps in the series (best_of from match details)
+ * @returns {Promise<Map<string, number|null>>} Map of playerId → average faceitRating (null if unavailable)
+ */
+async function getMatchScoreboardRatings(matchId, bestOf = 1) {
+    const roundCount = Math.max(1, Math.min(bestOf, 5));
+    const rounds = Array.from({ length: roundCount }, (_, i) => i + 1);
+
+    try {
+        const responses = await Promise.all(rounds.map(round =>
+            fetch(
+                `${SCOREBOARD_BASE_URL}/${matchId}/match-rounds/${round}/scoreboard-summary`,
+                {
+                    headers: {
+                        'accept':         'application/json+camelcase',
+                        'faceit-referer': 'web-next',
+                        'user-agent':     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    },
+                }
+            ).then(r => r.ok ? r.json() : null).catch(() => null)
+        ));
+
+        // Accumulate ratings per player across all available rounds
+        const ratingAccum = new Map(); // playerId → { sum, count }
+
+        for (const data of responses) {
+            const teams = data?.payload?.cs2?.teams;
+            if (!Array.isArray(teams)) continue;
+            for (const team of teams) {
+                for (const player of team.players || []) {
+                    const pid    = player.playerId;
+                    const rating = player.stats?.faceitRating;
+                    if (!pid || typeof rating !== 'number') continue;
+                    if (!ratingAccum.has(pid)) ratingAccum.set(pid, { sum: 0, count: 0 });
+                    const acc = ratingAccum.get(pid);
+                    acc.sum   += rating;
+                    acc.count += 1;
+                }
+            }
+        }
+
+        // Build result map: average across maps (or null if no data)
+        const result = new Map();
+        for (const [pid, { sum, count }] of ratingAccum) {
+            result.set(pid, count > 0 ? sum / count : null);
+        }
+        return result;
+    } catch (error) {
+        console.error(`Error fetching scoreboard ratings for match ${matchId}:`, error.message);
+        return new Map();
+    }
+}
+
+/**
  * Calculate average stats
  */
 function calculateAverageStats(statsArray) {
@@ -176,6 +238,7 @@ function calculateAverageStats(statsArray) {
  * Get last N matches and player stats.
  * Accepts a player object { id, nickname } — uses id directly,
  * fetching player info, game stats, and ELO timeline in parallel.
+ * Also fetches FACEIT Rating from the unofficial scoreboard API for each match.
  * @param {object} player - { id: string, nickname: string }
  */
 async function getPlayerStats(apiClient, player, matchesCount) {
@@ -207,11 +270,31 @@ async function getPlayerStats(apiClient, player, matchesCount) {
             if (validCount > 0) eloChange = sum;
         }
 
+        // Fetch FACEIT Rating for each match in parallel (bo1 assumed — round 1 only)
+        // We use best_of=1 per match to stay within rate limits (1 request per match).
+        const matchIds = statsData.items.map(item => item.stats?.['Match Id'] ?? item.match_id).filter(Boolean);
+        const ratingMaps = await Promise.all(
+            matchIds.map(mid => getMatchScoreboardRatings(mid, 1))
+        );
+
+        // Collect per-match rating for this player, skip matches where rating is unavailable
+        const ratingValues = [];
+        for (const rmap of ratingMaps) {
+            const r = rmap.get(playerId);
+            if (typeof r === 'number' && r > 0) ratingValues.push(r);
+        }
+        const avg_faceit_rating       = ratingValues.length > 0
+            ? ratingValues.reduce((s, v) => s + v, 0) / ratingValues.length
+            : null;
+        const faceit_rating_matches   = ratingValues.length;
+
         const stats = calculateAverageStats(allStats);
-        stats.nickname    = nickname;
-        stats.current_elo = currentElo;
-        stats.elo_change  = eloChange;
-        stats.avatar_url  = playerInfo?.avatar ?? null;
+        stats.nickname              = nickname;
+        stats.current_elo           = currentElo;
+        stats.elo_change            = eloChange;
+        stats.avatar_url            = playerInfo?.avatar ?? null;
+        stats.avg_faceit_rating     = avg_faceit_rating;
+        stats.faceit_rating_matches = faceit_rating_matches;
 
         return stats;
     } catch (e) {
@@ -245,7 +328,12 @@ async function getLeaderboardStats(apiKey, players, limit = 10) {
     // Filter out null results (failed requests)
     const leaderboard = results.filter(stats => stats !== null);
 
-    // Sort by ADR descending
+    // Sort by avg_faceit_rating descending if available for all players, else fall back to ADR
+    const allHaveRating = leaderboard.every(p => p.avg_faceit_rating != null);
+    if (allHaveRating && leaderboard.length > 0) {
+        return leaderboard.sort((a, b) => b.avg_faceit_rating - a.avg_faceit_rating);
+    }
+    // Fall back: sort by ADR descending (existing behaviour)
     return leaderboard.sort((a, b) => b.average_damage_per_round - a.average_damage_per_round);
 }
 
@@ -521,6 +609,7 @@ module.exports = {
     getPlayerDetailsByNickname,
     getMatchDetails,
     getMatchStats,
+    getMatchScoreboardRatings,
     extractPlayerMatchStats,
     getLastMatchEloChange,
     enrichMatchWithRosterElos,
