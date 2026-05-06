@@ -244,7 +244,7 @@ async function getPlayerMatchRoundRatings(playerId, limit) {
     try {
         const params = new URLSearchParams({ game_mode: '5v5', limit: String(limit) });
         const url     = `${MATCH_ROUNDS_BASE_URL}/${playerId}/match-rounds?${params}`;
-        const res = await fetch(url, {
+        const res = await fetchWithRetry(url, {
             headers: {
                 'accept':         'application/json+camelcase',
                 'faceit-referer': 'web-next',
@@ -416,13 +416,17 @@ async function getLeaderboardStats(apiKey, players, limit = 10) {
     // Filter out null results (failed requests)
     const leaderboard = results.filter(stats => stats !== null);
 
-    // Sort by avg_faceit_rating descending if available for all players, else fall back to ADR
-    const allHaveRating = leaderboard.every(p => p.avg_faceit_rating != null);
-    if (allHaveRating && leaderboard.length > 0) {
-        return leaderboard.sort((a, b) => b.avg_faceit_rating - a.avg_faceit_rating);
-    }
-    // Fall back: sort by ADR descending (existing behaviour)
-    return leaderboard.sort((a, b) => b.average_damage_per_round - a.average_damage_per_round);
+    // Hybrid sort:
+    // 1. Players WITH rating come first, sorted by avg_faceit_rating DESC.
+    // 2. Players WITHOUT rating (API miss / not yet computed) go to the end, sorted by ADR DESC.
+    const withRating    = leaderboard
+        .filter(p => p.avg_faceit_rating != null)
+        .sort((a, b) => b.avg_faceit_rating - a.avg_faceit_rating);
+    const withoutRating = leaderboard
+        .filter(p => p.avg_faceit_rating == null)
+        .sort((a, b) => b.average_damage_per_round - a.average_damage_per_round);
+
+    return [...withRating, ...withoutRating];
 }
 
 /**
