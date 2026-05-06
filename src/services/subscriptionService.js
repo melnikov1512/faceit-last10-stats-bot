@@ -203,7 +203,12 @@ async function handleMatchFinishedEvent(payload) {
 
     await Promise.all([...chatToPlayers.entries()].map(async ([chatId, playersMap]) => {
         const players = [...playersMap.values()];
-        // Clean up active match record for this chat
+
+        // Read message_id BEFORE removing the active match record — otherwise the
+        // document will be gone by the time we call getActiveMatchMessageId later.
+        const startMessageId = await storageService.getActiveMatchMessageId(chatId, matchId);
+
+        // Clean up active match record for this chat (fire-and-forget, safe now)
         storageService.removeActiveMatch(chatId, matchId).catch(() => {});
 
         // Atomic create: returns false if already sent (race condition protection)
@@ -260,7 +265,6 @@ async function handleMatchFinishedEvent(payload) {
         const caption = boldNames.join(' и ') + ' ' + verb;
 
         // Prefer editing the original start notification; fall back to a new message
-        const startMessageId = await storageService.getActiveMatchMessageId(chatId, matchId);
         if (startMessageId) {
             await editMessageMedia(chatId, startMessageId, imageBuffer, caption, replyMarkup);
         } else {
