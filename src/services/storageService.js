@@ -273,16 +273,34 @@ async function getRecentMatchIdsForPlayers(playerIds, sinceTs) {
 
 /**
  * Record a match as active for a chat (called when match-start notification is sent).
+ * Optionally stores the Telegram message_id so the finish handler can edit it later.
  * @param {string} chatId
  * @param {string} matchId
+ * @param {number|null} [messageId]  Telegram message_id of the start notification
  */
-async function storeActiveMatch(chatId, matchId) {
+async function storeActiveMatch(chatId, matchId, messageId = null) {
     const docId = `${chatId}_${matchId}`;
-    await activeMatchesCollection.doc(docId).set({
+    const data = {
         chatId: chatId.toString(),
         matchId,
         startedAt: Firestore.Timestamp.now(),
-    });
+    };
+    if (messageId != null) data.messageId = messageId;
+    await activeMatchesCollection.doc(docId).set(data);
+}
+
+/**
+ * Retrieve the Telegram message_id stored for a match-start notification.
+ * Returns null if not found or if the message_id was never stored.
+ * @param {string} chatId
+ * @param {string} matchId
+ * @returns {Promise<number|null>}
+ */
+async function getActiveMatchMessageId(chatId, matchId) {
+    const docId = `${chatId}_${matchId}`;
+    const doc = await activeMatchesCollection.doc(docId).get();
+    if (!doc.exists) return null;
+    return doc.data().messageId ?? null;
 }
 
 /**
@@ -325,5 +343,6 @@ module.exports = {
     // Active matches tracking
     storeActiveMatch,
     getActiveMatchIds,
+    getActiveMatchMessageId,
     removeActiveMatch,
 };

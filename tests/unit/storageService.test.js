@@ -6,7 +6,8 @@
 
 const mockCreate = jest.fn().mockResolvedValue();
 const mockGet    = jest.fn();
-const mockDoc    = jest.fn(() => ({ create: mockCreate, get: mockGet }));
+const mockSet    = jest.fn().mockResolvedValue();
+const mockDoc    = jest.fn(() => ({ create: mockCreate, get: mockGet, set: mockSet }));
 const mockWhere  = jest.fn();
 
 // Minimal Timestamp stub that mirrors the real API surface used by storageService.
@@ -38,6 +39,8 @@ const {
     markNotificationSent,
     markFinishNotificationSentForChat,
     getRecentMatchIdsForPlayers,
+    storeActiveMatch,
+    getActiveMatchMessageId,
 } = require('../../src/services/storageService');
 
 // TTL constant exported indirectly — we derive the expected value from the known 7-day period
@@ -214,5 +217,64 @@ describe('getRecentMatchIdsForPlayers', () => {
         // sinceTs is 1 hour ago → old-match (sentAt = ~3h ago) should be excluded
         const result = await getRecentMatchIdsForPlayers(['p1'], nowSec - 3600);
         expect(result).not.toContain('old-match');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// storeActiveMatch — stores messageId when provided
+// ---------------------------------------------------------------------------
+
+describe('storeActiveMatch', () => {
+    it('stores chatId, matchId and startedAt without messageId by default', async () => {
+        await storeActiveMatch('chat-1', 'match-1');
+
+        expect(mockDoc).toHaveBeenCalledWith('chat-1_match-1');
+        expect(mockSet).toHaveBeenCalledTimes(1);
+        const payload = mockSet.mock.calls[0][0];
+        expect(payload).toMatchObject({ chatId: 'chat-1', matchId: 'match-1' });
+        expect(payload.messageId).toBeUndefined();
+        expect(payload.startedAt).toBeInstanceOf(MockTimestamp);
+    });
+
+    it('stores messageId when provided', async () => {
+        await storeActiveMatch('chat-2', 'match-2', 42);
+
+        const payload = mockSet.mock.calls[0][0];
+        expect(payload.messageId).toBe(42);
+    });
+
+    it('does not include messageId key when null is passed', async () => {
+        await storeActiveMatch('chat-3', 'match-3', null);
+
+        const payload = mockSet.mock.calls[0][0];
+        expect(Object.prototype.hasOwnProperty.call(payload, 'messageId')).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// getActiveMatchMessageId — retrieves messageId from active_matches document
+// ---------------------------------------------------------------------------
+
+describe('getActiveMatchMessageId', () => {
+    it('returns messageId when document exists and has the field', async () => {
+        mockGet.mockResolvedValueOnce({ exists: true, data: () => ({ messageId: 99 }) });
+
+        const result = await getActiveMatchMessageId('chat-1', 'match-1');
+        expect(result).toBe(99);
+        expect(mockDoc).toHaveBeenCalledWith('chat-1_match-1');
+    });
+
+    it('returns null when document does not exist', async () => {
+        mockGet.mockResolvedValueOnce({ exists: false });
+
+        const result = await getActiveMatchMessageId('chat-1', 'match-x');
+        expect(result).toBeNull();
+    });
+
+    it('returns null when document exists but messageId is missing', async () => {
+        mockGet.mockResolvedValueOnce({ exists: true, data: () => ({}) });
+
+        const result = await getActiveMatchMessageId('chat-1', 'match-y');
+        expect(result).toBeNull();
     });
 });

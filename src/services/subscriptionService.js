@@ -1,12 +1,9 @@
 const storageService = require('./storageService');
-const { sendPhoto } = require('./telegramService');
+const { sendPhoto, editMessageMedia } = require('./telegramService');
 const { getMatchDetails, getMatchStats, extractPlayerMatchStats, getPlayerDetails, getLastMatchEloChange } = require('./faceitService');
 const { generateMatchImage, generateMatchResultsSummaryImage } = require('./imageService');
-const { getRandomFunnyMessage } = require('../data/matchFinishMessages');
 const { escapeHtml } = require('../utils');
 const config = require('../config');
-
-const ELO_THRESHOLD = 2000;
 
 /**
  * Handle an incoming FACEIT match_object_created webhook event.
@@ -118,7 +115,9 @@ async function handleMatchEvent(payload) {
         }
         const replyMarkup = inlineButtons.length ? { inline_keyboard: [inlineButtons] } : null;
 
-        await sendPhoto(chatId, imageBuffer, caption, replyMarkup);
+        const sentMessage = await sendPhoto(chatId, imageBuffer, caption, replyMarkup);
+        const telegramMessageId = sentMessage?.message_id ?? null;
+        await storageService.storeActiveMatch(chatId, matchId, telegramMessageId);
         console.log(`[FACEIT WEBHOOK] Sent match ${matchId} image notification to chat ${chatId} for players: ${nicknames.join(', ')}`);
     }));
 }
@@ -139,19 +138,10 @@ function buildWebAppButton(chatId, matchId) {
     return null;
 }
 
-function buildFinishJokesCaption(players) {
-    const jokeLines = players
-        .filter(player => player.currentElo != null && player.currentElo < ELO_THRESHOLD)
-        .map(player => `😄 ${escapeHtml(getRandomFunnyMessage(player.nickname, player.currentElo))}`);
-
-    if (jokeLines.length === 0) return null;
-    return jokeLines.join('\n\n');
-}
-
 /**
  * Handle an incoming FACEIT match_status_finished webhook event.
- * For each subscribed chat, sends one aggregated finish image for the match.
- * The caption contains only funny lines for tracked players below 2000 ELO.
+ * For each subscribed chat, edits the original start notification with the finish results.
+ * Falls back to sending a new message if the original message_id is not available.
  * @param {object} payload  The event payload from FACEIT
  */
 async function handleMatchFinishedEvent(payload) {
@@ -263,9 +253,19 @@ async function handleMatchFinishedEvent(payload) {
         const replyMarkup = button ? { inline_keyboard: [[button]] } : null;
 
         const imageBuffer = await generateMatchResultsSummaryImage(cardPlayersData);
-        const caption = buildFinishJokesCaption(playerDetails);
 
-        await sendPhoto(chatId, imageBuffer, caption, replyMarkup);
+        // Build a simple caption: "X и Y завершили матч"
+        const boldNames = players.map(p => `<b>${escapeHtml(p.nickname)}</b>`);
+        const verb = players.length === 1 ? 'завершил матч' : 'завершили матч';
+        const caption = boldNames.join(' и ') + ' ' + verb;
+
+        // Prefer editing the original start notification; fall back to a new message
+        const startMessageId = await storageService.getActiveMatchMessageId(chatId, matchId);
+        if (startMessageId) {
+            await editMessageMedia(chatId, startMessageId, imageBuffer, caption, replyMarkup);
+        } else {
+            await sendPhoto(chatId, imageBuffer, caption, replyMarkup);
+        }
         console.log(`[FACEIT WEBHOOK] Finish: sent aggregated notification for match ${matchId} to chat ${chatId} (players: ${players.map(p => p.nickname).join(', ')})`);
     }));
 }

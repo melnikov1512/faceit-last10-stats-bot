@@ -72,7 +72,7 @@ async function sendPhoto(chatId, imageBuffer, caption = null, replyMarkup = null
     const token = config.telegram_bot_token;
     if (!token) {
         console.error('TELEGRAM_BOT_TOKEN is not configured');
-        return;
+        return null;
     }
 
     try {
@@ -87,15 +87,61 @@ async function sendPhoto(chatId, imageBuffer, caption = null, replyMarkup = null
             form.append('reply_markup', JSON.stringify(replyMarkup));
         }
 
-        await axios.post(
+        const response = await axios.post(
             `https://api.telegram.org/bot${token}/sendPhoto`,
             form,
             { headers: form.getHeaders() }
         );
+        // Return the Telegram Message object (contains message_id, etc.)
+        return response.data?.result ?? null;
     } catch (error) {
         console.error(`Failed to send Telegram photo to chat ${chatId}:`, error.message);
         throw error;
     }
 }
 
-module.exports = { sendMessage, sendPhoto, setMyCommands, fetchBotUsername };
+/**
+ * Edit the media (photo) of a previously sent message.
+ * Used to replace a match-start card with a match-finish card in the same message.
+ * @param {string|number} chatId
+ * @param {number} messageId
+ * @param {Buffer} imageBuffer
+ * @param {string|null} caption  HTML caption (optional)
+ * @param {object|null} replyMarkup
+ */
+async function editMessageMedia(chatId, messageId, imageBuffer, caption = null, replyMarkup = null) {
+    const token = config.telegram_bot_token;
+    if (!token) {
+        console.error('TELEGRAM_BOT_TOKEN is not configured');
+        return;
+    }
+
+    try {
+        const form = new FormData();
+        form.append('chat_id', String(chatId));
+        form.append('message_id', String(messageId));
+
+        const mediaObj = { type: 'photo', media: 'attach://photo' };
+        if (caption) {
+            mediaObj.caption = caption;
+            mediaObj.parse_mode = 'HTML';
+        }
+        form.append('media', JSON.stringify(mediaObj));
+        form.append('photo', imageBuffer, { filename: 'result.png', contentType: 'image/png' });
+
+        if (replyMarkup) {
+            form.append('reply_markup', JSON.stringify(replyMarkup));
+        }
+
+        await axios.post(
+            `https://api.telegram.org/bot${token}/editMessageMedia`,
+            form,
+            { headers: form.getHeaders() }
+        );
+    } catch (error) {
+        console.error(`Failed to edit Telegram message media in chat ${chatId}:`, error.message);
+        throw error;
+    }
+}
+
+module.exports = { sendMessage, sendPhoto, editMessageMedia, setMyCommands, fetchBotUsername };

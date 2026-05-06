@@ -294,34 +294,6 @@ describe('getMatch', () => {
     });
 });
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const mockRes = () => {
-    const res = {};
-    res.status = jest.fn().mockReturnValue(res);
-    res.json   = jest.fn().mockReturnValue(res);
-    return res;
-};
-
-/** Minimal enriched match object returned by enrichMatchWithRosterElos */
-function makeEnrichedMatch(overrides = {}) {
-    return {
-        match_id:         'm1',
-        status:           'ONGOING',
-        competition_name: 'Test Cup',
-        region:           'EU',
-        best_of:          1,
-        results:          null,
-        teams: {
-            faction1: { faction_id: 'f1', name: 'Team Alpha', roster: [], stats: null },
-            faction2: { faction_id: 'f2', name: 'Team Beta',  roster: [], stats: null },
-        },
-        ...overrides,
-    };
-}
-
 beforeEach(() => jest.clearAllMocks());
 
 // ---------------------------------------------------------------------------
