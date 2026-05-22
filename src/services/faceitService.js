@@ -262,15 +262,31 @@ async function getPlayerMatchRoundRatings(playerId, limit) {
         }
 
         const data   = await res.json();
-        const rounds = data?.payload?.cs2?.matchRounds;
-        if (!Array.isArray(rounds)) return new Map();
+        // API may nest rounds at payload.cs2.matchRounds or payload.matchRounds
+        const rounds = data?.payload?.cs2?.matchRounds
+            ?? data?.payload?.matchRounds
+            ?? data?.matchRounds;
+        if (!Array.isArray(rounds)) {
+            console.warn(`[match-rounds] unexpected payload for player ${playerId}:`, JSON.stringify(data?.payload)?.slice(0, 200));
+            return new Map();
+        }
+
+        // Diagnostic: count how many rounds have faceitRating vs null
+        const withRating    = rounds.filter(r => typeof r.faceitRating === 'number');
+        const withoutRating = rounds.length - withRating.length;
+        console.log(`[match-rounds] player ${playerId}: ${rounds.length} rounds total, ${withRating.length} with rating, ${withoutRating} without (limit=${limit})`);
+        if (rounds.length > 0) {
+            const sampleMatchIds = [...new Set(rounds.slice(0, 6).map(r => r.matchId))];
+            console.log(`[match-rounds] sample matchIds from API: ${sampleMatchIds.join(', ')}`);
+        }
 
         // Accumulate ratings per matchId (averaging across maps of a multi-map series)
         const accum = new Map(); // matchId → { sum, count }
 
         for (const round of rounds) {
-            const matchId = round.matchId;
-            const rating  = round.faceitRating;
+            // Field names: camelCase if accept header honoured, snake_case fallback
+            const matchId = round.matchId ?? round.match_id;
+            const rating  = round.faceitRating ?? round.faceit_rating;
             if (!matchId || typeof rating !== 'number') continue;
             if (!accum.has(matchId)) accum.set(matchId, { sum: 0, count: 0 });
             const entry = accum.get(matchId);
@@ -367,6 +383,8 @@ async function getPlayerStats(apiClient, player, matchesCount) {
         const matchIds = statsData.items
             .map(item => item.stats?.['Match Id'])
             .filter(Boolean);
+
+        console.log(`[rating] ${nickname}: stats matchIds sample: ${matchIds.slice(0, 3).join(', ')}`);
 
         const ratingValues = [];
         for (const matchId of matchIds) {
