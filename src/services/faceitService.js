@@ -15,29 +15,26 @@ const ELO_TIMELINE_FROM_TS = 1604676605000;
 const ELO_TIMELINE_TO_TS   = 2235828605000;
 
 /**
- * fetch() wrapper with automatic retry on specified HTTP status codes.
+ * fetch() wrapper with automatic retry on HTTP 429 (Too Many Requests).
  * Respects the `Retry-After` response header when present; otherwise uses
  * exponential backoff: 1 s, 2 s, 4 s (capped at maxRetries attempts).
  *
- * Default retry status: 429 (Too Many Requests).
- * Pass retryOnStatuses=[429,403] to also retry on Cloudflare 403 blocks.
+ * Only retries on 429 — all other non-OK statuses are returned as-is so the
+ * caller can handle them normally.
  *
- * @param {string}   url
- * @param {object}   [options]           fetch init options
- * @param {number}   [maxRetries]        max number of retry attempts (default 3)
- * @param {number[]} [retryOnStatuses]   HTTP status codes that trigger a retry (default [429])
+ * @param {string}  url
+ * @param {object}  [options]     fetch init options
+ * @param {number}  [maxRetries]  max number of retry attempts (default 3)
  * @returns {Promise<Response>}
  */
-async function fetchWithRetry(url, options = {}, maxRetries = 3, retryOnStatuses = [429]) {
+async function fetchWithRetry(url, options = {}, maxRetries = 3) {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const res = await fetch(url, options);
-        if (!retryOnStatuses.includes(res.status) || attempt === maxRetries) return res;
+        if (res.status !== 429 || attempt === maxRetries) return res;
 
         const retryAfterSec = parseInt(res.headers.get('retry-after') ?? '', 10);
-        // For 403 (Cloudflare concurrency block): 1 s fixed delay; for 429: exponential backoff
-        const defaultDelaySec = res.status === 403 ? 1 : Math.pow(2, attempt);
-        const waitMs = (isNaN(retryAfterSec) ? defaultDelaySec : retryAfterSec) * 1000;
-        console.log(`[fetchWithRetry] ${res.status} for ${url} — waiting ${waitMs} ms (attempt ${attempt + 1}/${maxRetries})`);
+        const waitMs = (isNaN(retryAfterSec) ? Math.pow(2, attempt) : retryAfterSec) * 1000;
+        console.log(`[fetchWithRetry] 429 for ${url} — waiting ${waitMs} ms (attempt ${attempt + 1}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, waitMs));
     }
 }
@@ -254,7 +251,7 @@ async function getPlayerMatchRoundRatings(playerId, limit) {
                 'user-agent':     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             },
             signal: AbortSignal.timeout(10000),
-        }, 1, [429, 403]); // retry once on 429 or Cloudflare 403
+        });
 
         if (!res.ok) {
             // 429 = Cloudflare bot protection (Retry-After can be 100+ seconds).
@@ -345,22 +342,21 @@ function calculateAverageStats(statsArray) {
 /**
  * Get last N matches and player stats.
  * Accepts a player object { id, nickname } — uses id directly,
- * fetching player info, game stats, ELO timeline, and FACEIT Rating in parallel (4 concurrent requests).
- * FACEIT Rating is fetched from the unofficial match-rounds API (single request per player).
- * @param {object} player - { id: string, nickname: string }
+ * fetching player info, game stats, ELO timeline in parallel (3 concurrent requests).
+ * FACEIT Rating is supplied via `preloadedRatings` map (pre-fetched sequentially upstream
+ * to avoid Cloudflare 403 blocks from concurrent requests).
+ * @param {object} player              - { id: string, nickname: string }
+ * @param {Map<string, number>} preloadedRatings  - matchId → avgRating (empty Map if unavailable)
  */
-async function getPlayerStats(apiClient, player, matchesCount) {
+async function getPlayerStats(apiClient, player, matchesCount, preloadedRatings) {
     const { id: playerId, nickname } = player;
     try {
-        // All four requests fire in parallel — match-rounds replaces N per-match scoreboard calls
-        // Use *5 multiplier to cover worst-case bo5 series (5 maps per match).
-        // Cap at 300 supports up to N=60 in bo5 format and N=100 in bo3 format.
         const roundLimit = Math.min(matchesCount * 5, 300);
-        const [playerInfo, statsData, eloItems, matchRoundRatings] = await Promise.all([
+        // Fetch player data in parallel — only FACEIT v4 (concurrent-safe, no Cloudflare issues)
+        const [playerInfo, statsData, eloItems] = await Promise.all([
             getPlayerInfoById(apiClient, playerId),
             getPlayerGameStats(apiClient, playerId, matchesCount),
             getPlayerEloTimeline(playerId, matchesCount),
-            getPlayerMatchRoundRatings(playerId, roundLimit),
         ]);
 
         const currentElo = playerInfo?.games?.cs2?.faceit_elo ?? null;
@@ -382,12 +378,11 @@ async function getPlayerStats(apiClient, player, matchesCount) {
             if (validCount > 0) eloChange = sum;
         }
 
-        // Collect per-match FACEIT Rating using the match-rounds map (single request, no N loops)
+        // Apply pre-loaded FACEIT ratings (fetched sequentially in getLeaderboardStats)
+        const matchRoundRatings = preloadedRatings ?? new Map();
         const matchIds = statsData.items
             .map(item => item.stats?.['Match Id'])
             .filter(Boolean);
-
-        console.log(`[rating] ${nickname}: stats matchIds sample: ${matchIds.slice(0, 3).join(', ')}`);
 
         const ratingValues = [];
         for (const matchId of matchIds) {
@@ -432,14 +427,23 @@ async function getLeaderboardStats(apiKey, players, limit = 10) {
         throw new Error('API Key is required');
     }
 
-    // Process players with concurrency limit
     const apiClient = getApiClient(apiKey);
-    
-    // Process 10 players at a time to keep total concurrent requests manageable
+    const roundLimit = Math.min(limit * 5, 300);
+
+    // Step 1: Fetch match-rounds for each player SEQUENTIALLY.
+    // The unofficial match-rounds API is protected by Cloudflare and returns 403
+    // when multiple requests arrive concurrently from the same server IP.
+    // Sequential calls (one at a time) reliably bypass this restriction.
+    const preloadedRatings = new Map(); // playerId → Map<matchId, avgRating>
+    for (const player of players) {
+        preloadedRatings.set(player.id, await getPlayerMatchRoundRatings(player.id, roundLimit));
+    }
+
+    // Step 2: Fetch all other player data in parallel (FACEIT v4 API is concurrent-safe).
     const results = await processInChunks(
         players,
         10,
-        player => getPlayerStats(apiClient, player, limit)
+        player => getPlayerStats(apiClient, player, limit, preloadedRatings.get(player.id) ?? new Map())
     );
     
     // Filter out null results (failed requests)
