@@ -237,7 +237,7 @@ async function getMatchScoreboardRatings(matchId, bestOf = 1) {
  * Rounds without faceitRating (pre-Season 8 matches) are silently skipped.
  *
  * @param {string} playerId
- * @param {number} limit  Number of map rounds to fetch (use matchesCount * 3 to cover bo3 series)
+ * @param {number} limit  Number of map rounds to fetch (use matchesCount * 5 to cover worst-case bo5 series)
  * @returns {Promise<Map<string, number>>}  matchId → average faceitRating (only entries with valid rating)
  */
 async function getPlayerMatchRoundRatings(playerId, limit) {
@@ -334,7 +334,9 @@ async function getPlayerStats(apiClient, player, matchesCount) {
     const { id: playerId, nickname } = player;
     try {
         // All four requests fire in parallel — match-rounds replaces N per-match scoreboard calls
-        const roundLimit = Math.min(matchesCount * 3, 90);
+        // Use *5 multiplier to cover worst-case bo5 series (5 maps per match).
+        // Cap at 300 supports up to N=60 in bo5 format and N=100 in bo3 format.
+        const roundLimit = Math.min(matchesCount * 5, 300);
         const [playerInfo, statsData, eloItems, matchRoundRatings] = await Promise.all([
             getPlayerInfoById(apiClient, playerId),
             getPlayerGameStats(apiClient, playerId, matchesCount),
@@ -363,7 +365,7 @@ async function getPlayerStats(apiClient, player, matchesCount) {
 
         // Collect per-match FACEIT Rating using the match-rounds map (single request, no N loops)
         const matchIds = statsData.items
-            .map(item => item.stats?.['Match Id'] ?? item.match_id)
+            .map(item => item.stats?.['Match Id'])
             .filter(Boolean);
 
         const ratingValues = [];
@@ -375,6 +377,12 @@ async function getPlayerStats(apiClient, player, matchesCount) {
             ? ratingValues.reduce((s, v) => s + v, 0) / ratingValues.length
             : null;
         const faceit_rating_matches = ratingValues.length;
+
+        if (avg_faceit_rating === null) {
+            console.log(`[rating] ${nickname}: 0/${matchIds.length} matches rated (roundLimit=${roundLimit})`);
+        } else if (ratingValues.length < matchIds.length) {
+            console.log(`[rating] ${nickname}: ${ratingValues.length}/${matchIds.length} matches rated (roundLimit=${roundLimit})`);
+        }
 
         const stats = calculateAverageStats(allStats);
         stats.nickname              = nickname;
