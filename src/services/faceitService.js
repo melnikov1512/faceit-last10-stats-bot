@@ -15,26 +15,29 @@ const ELO_TIMELINE_FROM_TS = 1604676605000;
 const ELO_TIMELINE_TO_TS   = 2235828605000;
 
 /**
- * fetch() wrapper with automatic retry on HTTP 429 (Too Many Requests).
+ * fetch() wrapper with automatic retry on specified HTTP status codes.
  * Respects the `Retry-After` response header when present; otherwise uses
  * exponential backoff: 1 s, 2 s, 4 s (capped at maxRetries attempts).
  *
- * Only retries on 429 — all other non-OK statuses are returned as-is so the
- * caller can handle them normally.
+ * Default retry status: 429 (Too Many Requests).
+ * Pass retryOnStatuses=[429,403] to also retry on Cloudflare 403 blocks.
  *
- * @param {string}  url
- * @param {object}  [options]     fetch init options
- * @param {number}  [maxRetries]  max number of retry attempts (default 3)
+ * @param {string}   url
+ * @param {object}   [options]           fetch init options
+ * @param {number}   [maxRetries]        max number of retry attempts (default 3)
+ * @param {number[]} [retryOnStatuses]   HTTP status codes that trigger a retry (default [429])
  * @returns {Promise<Response>}
  */
-async function fetchWithRetry(url, options = {}, maxRetries = 3) {
+async function fetchWithRetry(url, options = {}, maxRetries = 3, retryOnStatuses = [429]) {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const res = await fetch(url, options);
-        if (res.status !== 429 || attempt === maxRetries) return res;
+        if (!retryOnStatuses.includes(res.status) || attempt === maxRetries) return res;
 
         const retryAfterSec = parseInt(res.headers.get('retry-after') ?? '', 10);
-        const waitMs = (isNaN(retryAfterSec) ? Math.pow(2, attempt) : retryAfterSec) * 1000;
-        console.log(`[fetchWithRetry] 429 for ${url} — waiting ${waitMs} ms (attempt ${attempt + 1}/${maxRetries})`);
+        // For 403 (Cloudflare concurrency block): 1 s fixed delay; for 429: exponential backoff
+        const defaultDelaySec = res.status === 403 ? 1 : Math.pow(2, attempt);
+        const waitMs = (isNaN(retryAfterSec) ? defaultDelaySec : retryAfterSec) * 1000;
+        console.log(`[fetchWithRetry] ${res.status} for ${url} — waiting ${waitMs} ms (attempt ${attempt + 1}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, waitMs));
     }
 }
@@ -251,7 +254,7 @@ async function getPlayerMatchRoundRatings(playerId, limit) {
                 'user-agent':     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             },
             signal: AbortSignal.timeout(10000),
-        });
+        }, 1, [429, 403]); // retry once on 429 or Cloudflare 403
 
         if (!res.ok) {
             // 429 = Cloudflare bot protection (Retry-After can be 100+ seconds).
