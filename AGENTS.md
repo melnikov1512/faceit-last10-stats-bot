@@ -134,6 +134,7 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
   - `GET /app` (and `/app/*` static): Serves web app from `public/` directory.
   - `GET /health`: Health check (returns `200 OK`). Используй этот путь в настройках GCF/Cloud Run.
 - **Environment**: Node.js 20 (specified in `package.json`).
+- **gcloud CLI (local machine)**: the system `gcloud` fails with the default Python (3.9, unsupported). Fix: `export CLOUDSDK_PYTHON=/Library/Frameworks/Python.framework/Versions/3.10/bin/python3.10` (already appended to `~/.zshrc`). Service name for log queries: `faceit-last10-stats-bot-git`. Example: `gcloud logging read 'resource.type="cloud_run_revision" resource.labels.service_name="faceit-last10-stats-bot-git" textPayload:"match-rounds"' --limit=50 --freshness=7d`.
 - **Tech Stack**:
     - **Server**: Express.js (for HTTP handling).
     - **HTTP Client**: Axios (for FACEIT API requests); native `fetch` for the unofficial ELO timeline API.
