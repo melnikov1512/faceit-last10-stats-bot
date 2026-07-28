@@ -190,6 +190,7 @@ Apply simplifications in safe order (least risky first):
 
 # Constitutional Constraints
 
+- **Language**: any comments added or preserved during refactoring, and any documentation touched, must be in English only, regardless of the chat language.
 - IF simplification might change behavior: Test thoroughly or don't proceed
 - IF tests fail after simplification: Revert immediately or fix without changing behavior
 - IF unsure if code is used: Don't remove — mark as "needs manual review"

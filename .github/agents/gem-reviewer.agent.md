@@ -226,6 +226,7 @@ By Depth:
 - IF reviewing simple config or doc: Set depth=lightweight.
 - IF OWASP critical findings detected: Set severity=critical.
 - IF secrets or PII detected: Set severity=critical.
+- **Link verification**: never cite a URL in findings unless it was just confirmed live via a tool call/fetch this turn. Never invent/reconstruct URLs from memory. If unverifiable, say so instead of presenting it as fact. If fetch tools fail/are blocked, retry via a browser tool (Playwright) before concluding the link is dead.
 
 # Anti-Patterns
 

@@ -12,6 +12,19 @@
 
 2. **Keep AGENTS.md up to date.** After making any changes to the codebase (new files, renamed files, changed architecture, new commands, new env vars, changed workflows, etc.) — update the relevant sections of this file before finishing the task.
 
+## GitHub Copilot Configuration
+
+- `.github/copilot-instructions.md` — global rules for Copilot in this repo: never commit/push without explicit request, answer questions before implementing, plan-file conventions (`docs/plans/<name>/<name>.md`, always ask "Ready to implement?" before coding), link verification (never state a URL unless just confirmed live via a tool call this turn), and English-only code comments/docs.
+- `.github/agents/` — specialized sub-agents (gem-orchestrator, gem-planner, gem-researcher, gem-implementer, gem-reviewer, gem-critic, gem-debugger, gem-devops, gem-documentation-writer, gem-code-simplifier, gem-browser-tester, gem-designer(-mobile), gem-implementer-mobile, gem-mobile-tester, api-architect, context-architect, critical-thinking, github-actions-expert). `gem-orchestrator`, `gem-planner`, `gem-researcher`, `gem-reviewer`, `gem-implementer`, `gem-documentation-writer`, `gem-code-simplifier`, `gem-devops` each carry an explicit **Link verification** rule (and, where relevant, an **English-only** language rule) duplicated in their own body — sub-agents don't automatically inherit these from `copilot-instructions.md` when delegated to.
+- `.github/instructions/` — auto-applied instruction files matched by `applyTo` glob:
+  - `agents-maintenance.instructions.md` — reminds to update `AGENTS.md` when workflows/`package.json`/config change.
+  - `readme-maintenance.instructions.md` — reminds to update `README.md` when workflows/`package.json`/Copilot config change.
+  - `node-scripts.instructions.md` — conventions for `scripts/**/*.js` (file header format, `node:` prefix, `'use strict'`, `parseArgs` for CLI args, `spawnSync`/`execSync` usage, exit codes, CJS-only).
+  - `image-service.instructions.md` — `applyTo: src/services/imageService.js`. Design tokens synced with `public/index.html` CSS vars, bundled Inter fonts (Latin-only), canvas perf rules (shared context, parallel avatar loads), FACEIT unofficial-endpoint Cloudflare caveats, batching/rate-limit conventions.
+  - `firestore.instructions.md` — `applyTo: src/services/storageService.js`. Atomic `create()`-based dedup pattern (never read-then-`set()`), `expireAt` TTL field convention, document ID conventions, `array-contains` cross-chat query pattern, Native Mode requirement.
+- `.github/skills/` — reusable Copilot skills: `gh-cli`, `github-issues`, `my-issues`, `my-pull-requests` (GitHub operations via `gh`/MCP), `refactor-method-complexity-reduce`, `refactor-plan`, `architecture-blueprint-generator`, `create-implementation-plan`, `create-readme`, `suggest-awesome-github-copilot-instructions`, `suggest-awesome-github-copilot-skills`.
+- Salesforce/Apex/LWC-specific agents, instructions, skills and prompts (e.g. `gem-apex-specialist`, `gem-lwc-specialist`, `unit-tests.instructions.md`, `microsoft-docs`, `tavily-*`) were intentionally **not** imported — this project has no Salesforce stack and no Tavily MCP configured.
+
 ## Project Overview
 This is a Node.js Telegram bot designed to run as a **Google Cloud Function** (HTTP Trigger). It fetches **FACEIT Data API v4** statistics for **Counter-Strike 2 (CS2)** and communicates with Telegram via **Webhook Replies**.
 

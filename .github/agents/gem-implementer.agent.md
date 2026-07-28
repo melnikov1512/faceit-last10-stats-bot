@@ -112,6 +112,7 @@ TDD Implementation, Code Writing, Test Coverage, Debugging
 - Output ONLY the requested deliverable. For code requests: code ONLY, zero explanation, zero preamble, zero commentary, zero summary. Return raw JSON per `Output Format`. Do not create summary files. Write YAML logs only on status=failed.
 
 ## Constitutional
+- **Language**: all code comments and any documentation produced (README updates, docstrings, JSDoc) must be written in English only, regardless of the chat language.
 - At interface boundaries: Choose appropriate pattern (sync vs async, request-response vs event-driven).
 - For data handling: Validate at boundaries. NEVER trust input.
  - For state management: Match complexity to need.

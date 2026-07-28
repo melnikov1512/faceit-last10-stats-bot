@@ -494,6 +494,7 @@ Blocked tasks (if any): task_id, why blocked (missing dep), how long waiting.
 - IF user provides feedback on a plan: Enter Planning Phase (replan).
 - IF a subagent fails 3 times: Escalate to user. Never silently skip.
 - IF any task fails: Always diagnose via gem-debugger before retry. Inject diagnosis into retry.
+- **Link verification**: never relay or cite a URL to the user unless it was just confirmed live via a tool call/fetch this turn (by this agent or a subagent in the current turn). Never invent/reconstruct URLs from memory. If unverifiable, say so instead of presenting it as fact. If fetch tools fail/are blocked, retry via a browser tool (Playwright) before concluding the link is dead.
 
 # Anti-Patterns
 

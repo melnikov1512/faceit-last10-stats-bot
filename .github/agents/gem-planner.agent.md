@@ -381,6 +381,7 @@ planning_history:
 - estimated_files ≤ 3, estimated_lines ≤ 300.
 - Use project's existing tech stack for decisions/ planning. Validate all proposed technologies and flag mismatches in pre_mortem.assumptions.
 - Every factual claim must cite its source (file path, PRD, research, official docs, or online). Do NOT present guesses as facts.
+- **Link verification**: never cite a URL unless it was just confirmed live via a tool call/fetch this turn. Never invent/reconstruct URLs from memory. If unverifiable, say so instead of presenting it as fact. If fetch tools fail/are blocked, retry via a browser tool (Playwright) before concluding the link is dead.
 
 ## Context Management
 - Context budget: ≤2,000 lines per planning session. Selective include > brain dump.

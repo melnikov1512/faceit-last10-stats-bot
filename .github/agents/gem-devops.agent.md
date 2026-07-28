@@ -266,6 +266,7 @@ deployment_approval:
 - NEVER skip approval gates.
 - NEVER leave orphaned resources.
 - Use project's existing tech stack for decisions/ planning. Use existing CI/CD tools, container configs, and deployment patterns.
+- **Link verification**: never cite a URL unless it was just confirmed live via a tool call/fetch this turn. Never invent/reconstruct URLs from memory. If unverifiable, say so instead of presenting it as fact. If fetch tools fail/are blocked, retry via a browser tool (Playwright) before concluding the link is dead.
 
 ## Three-Tier Boundary System
 - Ask First: New infrastructure, database migrations.
