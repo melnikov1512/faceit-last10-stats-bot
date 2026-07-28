@@ -41,8 +41,6 @@ function makeEnrichedMatch(overrides = {}) {
 
 beforeEach(() => {
     jest.clearAllMocks();
-    // Default: scoreboard ratings returns empty map (no rating available)
-    faceitService.getMatchScoreboardRatings.mockResolvedValue(new Map());
 });
 
 // ---------------------------------------------------------------------------
@@ -180,70 +178,9 @@ describe('getMatch', () => {
         const response = res.json.mock.calls[0][0];
         expect(response.match).toHaveProperty('matchStats');
         expect(response.match.matchStats.players['p1']).toBeDefined();
+        expect(response.match.matchStats.players['p1'].faceitRating).toBeUndefined();
     });
 
-    it('enriches matchStats.players with faceitRating when scoreboard API returns data', async () => {
-        const enriched = makeEnrichedMatch();
-        faceitService.getMatchDetails.mockResolvedValue(enriched);
-        faceitService.enrichMatchWithRosterElos.mockResolvedValue(enriched);
-        faceitService.getMatchStats.mockResolvedValue({
-            rounds: [{
-                round_stats: { Map: 'de_dust2', Winner: 'f1' },
-                teams: [
-                    {
-                        team_id: 'f1',
-                        team_stats: { 'Final Score': '16' },
-                        players: [{
-                            player_id: 'p1',
-                            nickname: 'Player1',
-                            player_stats: { Kills: '20', Deaths: '10', Assists: '5', Headshots: '5', ADR: '80' },
-                        }],
-                    },
-                    { team_id: 'f2', team_stats: { 'Final Score': '14' }, players: [] },
-                ],
-            }],
-        });
-        faceitService.getMatchScoreboardRatings.mockResolvedValue(new Map([['p1', 1.25]]));
-        storageService.getChatSubscriptions.mockResolvedValue([]);
-
-        const res = mockRes();
-        await getMatch({ query: { matchId: 'm1', chatId: '123' } }, res);
-
-        const p1 = res.json.mock.calls[0][0].match.matchStats.players['p1'];
-        expect(p1.faceitRating).toBe(1.25);
-    });
-
-    it('sets faceitRating to null when scoreboard API returns no data for a player', async () => {
-        const enriched = makeEnrichedMatch();
-        faceitService.getMatchDetails.mockResolvedValue(enriched);
-        faceitService.enrichMatchWithRosterElos.mockResolvedValue(enriched);
-        faceitService.getMatchStats.mockResolvedValue({
-            rounds: [{
-                round_stats: { Map: 'de_dust2', Winner: 'f1' },
-                teams: [
-                    {
-                        team_id: 'f1',
-                        team_stats: { 'Final Score': '16' },
-                        players: [{
-                            player_id: 'p1',
-                            nickname: 'Player1',
-                            player_stats: { Kills: '20', Deaths: '10', Assists: '5', Headshots: '5', ADR: '80' },
-                        }],
-                    },
-                    { team_id: 'f2', team_stats: { 'Final Score': '14' }, players: [] },
-                ],
-            }],
-        });
-        // scoreboard returns empty map — rating not yet computed
-        faceitService.getMatchScoreboardRatings.mockResolvedValue(new Map());
-        storageService.getChatSubscriptions.mockResolvedValue([]);
-
-        const res = mockRes();
-        await getMatch({ query: { matchId: 'm1', chatId: '123' } }, res);
-
-        const p1 = res.json.mock.calls[0][0].match.matchStats.players['p1'];
-        expect(p1.faceitRating).toBeNull();
-    });
 
     it('works without chatId (subscriptions default to empty array)', async () => {
         const enriched = makeEnrichedMatch();
@@ -431,6 +368,7 @@ describe('getMatch', () => {
         const response = res.json.mock.calls[0][0];
         expect(response.match).toHaveProperty('matchStats');
         expect(response.match.matchStats.players['p1']).toBeDefined();
+        expect(response.match.matchStats.players['p1'].faceitRating).toBeUndefined();
     });
 
     it('works without chatId (subscriptions default to empty array)', async () => {

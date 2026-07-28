@@ -220,49 +220,46 @@ function drawRow(ctx, player, rowIndex, avatar, matchesCount) {
     ctx.fillText(truncateText(ctx, player.nickname, geo.nameMaxW), geo.nameX, textY);
 
     ctx.font = FONT.statCell;
-
-    const hasRatingCol = COLUMNS.length > 6; // 7 columns = Rating mode
-
+    const hasRatingCol = COLUMNS.length > 6;
+    const eloText  = player.elo_change != null
+        ? `${player.elo_change >= 0 ? '+' : ''}${player.elo_change}`
+        : '—';
+    const eloColor = player.elo_change > 0 ? COLOR.positive
+                   : player.elo_change < 0 ? COLOR.negative
+                   : COLOR.subtext;
     if (hasRatingCol) {
-        // COLUMNS: Player(0) Rating(1) ADR(2) K/D(3) Kills(4) ELO(5) ±ELO(6)
-        const r        = player.avg_faceit_rating;
-        const rCount   = player.faceit_rating_matches ?? 0;
-        const rText    = r != null ? `${r.toFixed(2)} (${rCount})` : '—';
-        const rColor   = getRatingColor(r);
-        drawStatCell(ctx, rText,                                                    1, textY, rColor);
-        drawStatCell(ctx, parseFloat(player.average_damage_per_round).toFixed(1),   2, textY);
-        drawStatCell(ctx, parseFloat(player.kills_deaths_ratio).toFixed(2),          3, textY);
-        drawStatCell(ctx, parseFloat(player.average_kills).toFixed(1),               4, textY);
+        const rating = player.estimated_rating;
+        const rText = rating != null ? `~${rating.toFixed(2)}` : '—';
+        const rColor = getRatingColor(rating);
+
+        drawStatCell(ctx, rText, 1, textY, rColor);
+        drawStatCell(ctx, parseFloat(player.average_damage_per_round).toFixed(1), 2, textY);
+        drawStatCell(ctx, parseFloat(player.kills_deaths_ratio).toFixed(2),       3, textY);
+        drawStatCell(ctx, parseFloat(player.average_kills).toFixed(1),            4, textY);
         drawStatCell(ctx, player.current_elo != null ? String(player.current_elo) : '—', 5, textY, COLOR.subtext);
-        const eloText  = player.elo_change != null
-            ? `${player.elo_change >= 0 ? '+' : ''}${player.elo_change}`
-            : '—';
-        const eloColor = player.elo_change > 0 ? COLOR.positive
-                       : player.elo_change < 0 ? COLOR.negative
-                       : COLOR.subtext;
         drawStatCell(ctx, eloText, 6, textY, eloColor);
-    } else {
-        // COLUMNS: Player(0) ADR(1) K/D(2) Kills(3) ELO(4) ±ELO(5)
-        drawStatCell(ctx, parseFloat(player.average_damage_per_round).toFixed(1), 1, textY);
-        drawStatCell(ctx, parseFloat(player.kills_deaths_ratio).toFixed(2),       2, textY);
-        drawStatCell(ctx, parseFloat(player.average_kills).toFixed(1),            3, textY);
-        drawStatCell(ctx, player.current_elo != null ? String(player.current_elo) : '—', 4, textY, COLOR.subtext);
-        const eloText  = player.elo_change != null
-            ? `${player.elo_change >= 0 ? '+' : ''}${player.elo_change}`
-            : '—';
-        const eloColor = player.elo_change > 0 ? COLOR.positive
-                       : player.elo_change < 0 ? COLOR.negative
-                       : COLOR.subtext;
-        drawStatCell(ctx, eloText, 5, textY, eloColor);
+        return;
     }
+
+    drawStatCell(ctx, parseFloat(player.average_damage_per_round).toFixed(1), 1, textY);
+    drawStatCell(ctx, parseFloat(player.kills_deaths_ratio).toFixed(2),       2, textY);
+    drawStatCell(ctx, parseFloat(player.average_kills).toFixed(1),            3, textY);
+    drawStatCell(ctx, player.current_elo != null ? String(player.current_elo) : '—', 4, textY, COLOR.subtext);
+    drawStatCell(ctx, eloText, 5, textY, eloColor);
 }
 
-function drawFooter(ctx, playerCount) {
+function drawFooter(ctx, playerCount, hasEstimatedRating = false) {
     const footerY = HEADER_H + playerCount * ROW_H;
     ctx.fillStyle = COLOR.headerBg;
     ctx.fillRect(0, footerY, WIDTH, FOOTER_H);
     ctx.fillStyle = COLOR.subtext;
     ctx.font      = FONT.footer;
+
+    if (hasEstimatedRating) {
+        ctx.textAlign = 'left';
+        ctx.fillText('~ = estimated Rating', PADDING, footerY + FOOTER_H / 2 + 6);
+    }
+
     ctx.textAlign = 'right';
     ctx.fillText('FACEIT Stats Bot', WIDTH - PADDING, footerY + FOOTER_H / 2 + 6);
 }
@@ -285,8 +282,7 @@ async function loadAvatars(leaderboard) {
  * @returns {Promise<Buffer>}
  */
 async function generateStatsImage(leaderboard, matchesCount) {
-    // Choose column layout: use Rating column if at least one player has rating data
-    const showRating = leaderboard.some(p => p.avg_faceit_rating != null);
+    const showRating = leaderboard.some((player) => player.estimated_rating != null);
     COLUMNS = showRating ? COLUMNS_WITH_RATING : COLUMNS_BASE;
     COL_X   = getColX(COLUMNS);
 
@@ -300,7 +296,7 @@ async function generateStatsImage(leaderboard, matchesCount) {
 
     drawHeader(ctx, matchesCount);
     leaderboard.forEach((player, i) => drawRow(ctx, player, i, avatars[i], matchesCount));
-    drawFooter(ctx, leaderboard.length);
+    drawFooter(ctx, leaderboard.length, showRating);
 
     return canvas.toBuffer('image/png');
 }

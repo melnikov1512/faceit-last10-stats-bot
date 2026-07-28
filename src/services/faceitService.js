@@ -1,43 +1,15 @@
 const axios = require('axios');
+const { estimateMatchRating } = require('./ratingEstimator');
 
 const BASE_URL       = 'https://open.faceit.com/data/v4';
 // Unofficial stats API — public endpoint, NO Authorization header allowed
 const STATS_BASE_URL = 'https://api.faceit.com/stats/v1';
-// Unofficial scoreboard API — provides FACEIT Rating (Season 8+)
-const SCOREBOARD_BASE_URL = 'https://www.faceit.com/api/statistics/v1/cs2/matches';
-// Unofficial player match-rounds API — per-player history with faceitRating per map
-const MATCH_ROUNDS_BASE_URL = 'https://www.faceit.com/api/statistics/v1/cs2/players';
 const GAME = 'cs2';
 
 // Wide time range for ELO timeline queries — known to work (from FACEIT Discord community).
 // from: 2020-11-06 (CS2/CSGO FACEIT era start), to: ~2040 (far future)
 const ELO_TIMELINE_FROM_TS = 1604676605000;
 const ELO_TIMELINE_TO_TS   = 2235828605000;
-
-/**
- * fetch() wrapper with automatic retry on HTTP 429 (Too Many Requests).
- * Respects the `Retry-After` response header when present; otherwise uses
- * exponential backoff: 1 s, 2 s, 4 s (capped at maxRetries attempts).
- *
- * Only retries on 429 — all other non-OK statuses are returned as-is so the
- * caller can handle them normally.
- *
- * @param {string}  url
- * @param {object}  [options]     fetch init options
- * @param {number}  [maxRetries]  max number of retry attempts (default 3)
- * @returns {Promise<Response>}
- */
-async function fetchWithRetry(url, options = {}, maxRetries = 3) {
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        const res = await fetch(url, options);
-        if (res.status !== 429 || attempt === maxRetries) return res;
-
-        const retryAfterSec = parseInt(res.headers.get('retry-after') ?? '', 10);
-        const waitMs = (isNaN(retryAfterSec) ? Math.pow(2, attempt) : retryAfterSec) * 1000;
-        console.log(`[fetchWithRetry] 429 for ${url} — waiting ${waitMs} ms (attempt ${attempt + 1}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, waitMs));
-    }
-}
 
 /**
  * Helper to process items in chunks to avoid hitting API rate limits
@@ -170,144 +142,6 @@ async function getPlayerEloTimeline(playerId, limit) {
 }
 
 /**
- * Fetch FACEIT Rating for each player in a match from the unofficial scoreboard API.
- * FACEIT Rating is computed asynchronously after match finish — may be null for recent matches.
- *
- * For bo1: fetches round 1 only.
- * For bo3/bo5: fetches all rounds in parallel and averages the rating across maps per player.
- *
- * @param {string} matchId
- * @param {number} [bestOf=1]  Number of maps in the series (best_of from match details)
- * @returns {Promise<Map<string, number|null>>} Map of playerId → average faceitRating (null if unavailable)
- */
-async function getMatchScoreboardRatings(matchId, bestOf = 1) {
-    const roundCount = Math.max(1, Math.min(bestOf, 5));
-    const rounds = Array.from({ length: roundCount }, (_, i) => i + 1);
-
-    try {
-        const responses = await Promise.all(rounds.map(round =>
-            fetch(
-                `${SCOREBOARD_BASE_URL}/${matchId}/match-rounds/${round}/scoreboard-summary`,
-                {
-                    headers: {
-                        'accept':         'application/json+camelcase',
-                        'faceit-referer': 'web-next',
-                        'user-agent':     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    },
-                }
-            ).then(r => r.ok ? r.json() : null).catch(() => null)
-        ));
-
-        // Accumulate ratings per player across all available rounds
-        const ratingAccum = new Map(); // playerId → { sum, count }
-
-        for (const data of responses) {
-            const teams = data?.payload?.cs2?.teams;
-            if (!Array.isArray(teams)) continue;
-            for (const team of teams) {
-                for (const player of team.players || []) {
-                    const pid    = player.playerId;
-                    const rating = player.stats?.faceitRating;
-                    if (!pid || typeof rating !== 'number') continue;
-                    if (!ratingAccum.has(pid)) ratingAccum.set(pid, { sum: 0, count: 0 });
-                    const acc = ratingAccum.get(pid);
-                    acc.sum   += rating;
-                    acc.count += 1;
-                }
-            }
-        }
-
-        // Build result map: average across maps (or null if no data)
-        const result = new Map();
-        for (const [pid, { sum, count }] of ratingAccum) {
-            result.set(pid, count > 0 ? sum / count : null);
-        }
-        return result;
-    } catch (error) {
-        console.error(`Error fetching scoreboard ratings for match ${matchId}:`, error.message);
-        return new Map();
-    }
-}
-
-/**
- * Fetch FACEIT Rating for a player's recent match rounds from the unofficial match-rounds API.
- * Single request replaces N scoreboard-summary calls previously done per-match.
- *
- * Groups rounds by matchId and averages faceitRating across maps of the same match (bo3/bo5 support).
- * Rounds without faceitRating (pre-Season 8 matches) are silently skipped.
- *
- * @param {string} playerId
- * @param {number} limit  Number of map rounds to fetch (use matchesCount * 5 to cover worst-case bo5 series)
- * @returns {Promise<Map<string, number>>}  matchId → average faceitRating (only entries with valid rating)
- */
-async function getPlayerMatchRoundRatings(playerId, limit) {
-    try {
-        const params = new URLSearchParams({ game_mode: '5v5', limit: String(limit) });
-        const url     = `${MATCH_ROUNDS_BASE_URL}/${playerId}/match-rounds?${params}`;
-        const res = await fetchWithRetry(url, {
-            headers: {
-                'accept':         'application/json+camelcase',
-                'faceit-referer': 'web-next',
-                'user-agent':     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            },
-            signal: AbortSignal.timeout(10000),
-        });
-
-        if (!res.ok) {
-            // 429 = Cloudflare bot protection (Retry-After can be 100+ seconds).
-            // Fail fast and return empty — caller falls back to ADR sorting gracefully.
-            // The stats cache (5 min TTL) prevents hammering the endpoint.
-            console.warn(`[match-rounds] HTTP ${res.status} for player ${playerId} — skipping Rating`);
-            return new Map();
-        }
-
-        const data   = await res.json();
-        // API may nest rounds at payload.cs2.matchRounds or payload.matchRounds
-        const rounds = data?.payload?.cs2?.matchRounds
-            ?? data?.payload?.matchRounds
-            ?? data?.matchRounds;
-        if (!Array.isArray(rounds)) {
-            console.warn(`[match-rounds] unexpected payload for player ${playerId}:`, JSON.stringify(data?.payload)?.slice(0, 200));
-            return new Map();
-        }
-
-        // Diagnostic: count how many rounds have faceitRating vs null
-        const withRating    = rounds.filter(r => typeof r.faceitRating === 'number');
-        const withoutRating = rounds.length - withRating.length;
-        console.log(`[match-rounds] player ${playerId}: ${rounds.length} rounds total, ${withRating.length} with rating, ${withoutRating} without (limit=${limit})`);
-        if (rounds.length > 0) {
-            const sampleMatchIds = [...new Set(rounds.slice(0, 6).map(r => r.matchId))];
-            console.log(`[match-rounds] sample matchIds from API: ${sampleMatchIds.join(', ')}`);
-        }
-
-        // Accumulate ratings per matchId (averaging across maps of a multi-map series)
-        const accum = new Map(); // matchId → { sum, count }
-
-        for (const round of rounds) {
-            // Field names: camelCase if accept header honoured, snake_case fallback
-            const matchId = round.matchId ?? round.match_id;
-            const rating  = round.faceitRating ?? round.faceit_rating;
-            if (!matchId || typeof rating !== 'number') continue;
-            if (!accum.has(matchId)) accum.set(matchId, { sum: 0, count: 0 });
-            const entry = accum.get(matchId);
-            entry.sum   += rating;
-            entry.count += 1;
-        }
-
-        // Convert accumulator to matchId → avgRating
-        const result = new Map();
-        for (const [matchId, { sum, count }] of accum) {
-            if (count > 0) result.set(matchId, sum / count);
-        }
-        return result;
-    } catch (error) {
-        // AbortError = 10 s timeout; network errors — log and skip gracefully
-        console.warn(`[match-rounds] fetch failed for player ${playerId}: ${error.message}`);
-        return new Map();
-    }
-}
-
-/**
  * Calculate average stats
  */
 function calculateAverageStats(statsArray) {
@@ -340,18 +174,39 @@ function calculateAverageStats(statsArray) {
 }
 
 /**
+ * Average the per-match HLTV Rating 2.0 approximation across analysed matches.
+ * This is not FACEIT's real Rating; see ratingEstimator.js for the estimation details.
+ *
+ * @param {Array<Object>} statsArray Raw FACEIT v4 per-match stats objects.
+ * @returns {number|null} Arithmetic mean of valid estimated ratings, or null when none are computable.
+ */
+function estimateAverageRating(statsArray) {
+    const ratings = statsArray
+        .map(stat => estimateMatchRating({
+            kills: parseInt(stat.Kills, 10) || 0,
+            deaths: parseInt(stat.Deaths, 10) || 0,
+            assists: parseInt(stat.Assists, 10) || 0,
+            rounds: parseInt(stat.Rounds, 10) || 0,
+            adr: parseFloat(stat.ADR) || 0,
+        }))
+        .filter(rating => rating !== null);
+
+    if (ratings.length === 0) {
+        return null;
+    }
+
+    return ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length;
+}
+
+/**
  * Get last N matches and player stats.
  * Accepts a player object { id, nickname } — uses id directly,
  * fetching player info, game stats, ELO timeline in parallel (3 concurrent requests).
- * FACEIT Rating is supplied via `preloadedRatings` map (pre-fetched sequentially upstream
- * to avoid Cloudflare 403 blocks from concurrent requests).
  * @param {object} player              - { id: string, nickname: string }
- * @param {Map<string, number>} preloadedRatings  - matchId → avgRating (empty Map if unavailable)
  */
-async function getPlayerStats(apiClient, player, matchesCount, preloadedRatings) {
+async function getPlayerStats(apiClient, player, matchesCount) {
     const { id: playerId, nickname } = player;
     try {
-        const roundLimit = Math.min(matchesCount * 5, 300);
         // Fetch player data in parallel — only FACEIT v4 (concurrent-safe, no Cloudflare issues)
         const [playerInfo, statsData, eloItems] = await Promise.all([
             getPlayerInfoById(apiClient, playerId),
@@ -378,35 +233,12 @@ async function getPlayerStats(apiClient, player, matchesCount, preloadedRatings)
             if (validCount > 0) eloChange = sum;
         }
 
-        // Apply pre-loaded FACEIT ratings (fetched sequentially in getLeaderboardStats)
-        const matchRoundRatings = preloadedRatings ?? new Map();
-        const matchIds = statsData.items
-            .map(item => item.stats?.['Match Id'])
-            .filter(Boolean);
-
-        const ratingValues = [];
-        for (const matchId of matchIds) {
-            const r = matchRoundRatings.get(matchId);
-            if (typeof r === 'number' && r > 0) ratingValues.push(r);
-        }
-        const avg_faceit_rating     = ratingValues.length > 0
-            ? ratingValues.reduce((s, v) => s + v, 0) / ratingValues.length
-            : null;
-        const faceit_rating_matches = ratingValues.length;
-
-        if (avg_faceit_rating === null) {
-            console.log(`[rating] ${nickname}: 0/${matchIds.length} matches rated (roundLimit=${roundLimit})`);
-        } else if (ratingValues.length < matchIds.length) {
-            console.log(`[rating] ${nickname}: ${ratingValues.length}/${matchIds.length} matches rated (roundLimit=${roundLimit})`);
-        }
-
         const stats = calculateAverageStats(allStats);
-        stats.nickname              = nickname;
-        stats.current_elo           = currentElo;
-        stats.elo_change            = eloChange;
-        stats.avatar_url            = playerInfo?.avatar ?? null;
-        stats.avg_faceit_rating     = avg_faceit_rating;
-        stats.faceit_rating_matches = faceit_rating_matches;
+        stats.nickname         = nickname;
+        stats.current_elo      = currentElo;
+        stats.elo_change       = eloChange;
+        stats.avatar_url       = playerInfo?.avatar ?? null;
+        stats.estimated_rating = estimateAverageRating(allStats);
 
         return stats;
     } catch (e) {
@@ -428,39 +260,18 @@ async function getLeaderboardStats(apiKey, players, limit = 10) {
     }
 
     const apiClient = getApiClient(apiKey);
-    const roundLimit = Math.min(limit * 5, 300);
-
-    // Step 1: Fetch match-rounds for each player SEQUENTIALLY.
-    // The unofficial match-rounds API is protected by Cloudflare and returns 403
-    // when multiple requests arrive concurrently from the same server IP.
-    // Sequential calls (one at a time) reliably bypass this restriction.
-    const preloadedRatings = new Map(); // playerId → Map<matchId, avgRating>
-    for (const player of players) {
-        preloadedRatings.set(player.id, await getPlayerMatchRoundRatings(player.id, roundLimit));
-    }
-
-    // Step 2: Fetch all other player data in parallel (FACEIT v4 API is concurrent-safe).
     const results = await processInChunks(
         players,
         10,
-        player => getPlayerStats(apiClient, player, limit, preloadedRatings.get(player.id) ?? new Map())
+        player => getPlayerStats(apiClient, player, limit)
     );
     
     // Filter out null results (failed requests)
     const leaderboard = results.filter(stats => stats !== null);
 
-    // Hybrid sort:
-    // 1. Players WITH rating come first, sorted by avg_faceit_rating DESC, then ADR DESC as tiebreaker.
-    // 2. Players WITHOUT rating (API miss / not yet computed) go to the end, sorted by ADR DESC.
-    const withRating    = leaderboard
-        .filter(p => p.avg_faceit_rating != null)
-        .sort((a, b) => b.avg_faceit_rating - a.avg_faceit_rating
-            || b.average_damage_per_round - a.average_damage_per_round);
-    const withoutRating = leaderboard
-        .filter(p => p.avg_faceit_rating == null)
-        .sort((a, b) => b.average_damage_per_round - a.average_damage_per_round);
-
-    return [...withRating, ...withoutRating];
+    // Primary sort by estimated Rating (HLTV 2.0 approximation) descending, ADR descending as tiebreak/fallback for players with no rounds data.
+    return leaderboard.sort((a, b) => (b.estimated_rating ?? -Infinity) - (a.estimated_rating ?? -Infinity)
+        || b.average_damage_per_round - a.average_damage_per_round);
 }
 
 /**
@@ -735,7 +546,6 @@ module.exports = {
     getPlayerDetailsByNickname,
     getMatchDetails,
     getMatchStats,
-    getMatchScoreboardRatings,
     extractPlayerMatchStats,
     getLastMatchEloChange,
     enrichMatchWithRosterElos,
