@@ -8,18 +8,35 @@ applyTo: "src/services/imageService.js"
 
 ## Design Tokens — Stay in Sync with `public/index.html`
 
-The colour palette **must** match the web-app CSS variables exactly. Never hardcode a new colour without checking `public/index.html` first.
+The colour palette **must** match the web-app CSS variables exactly. Never hardcode a new colour without checking `public/index.html` first (a parallel task keeps `public/index.html`'s CSS variables aligned with this exact glassmorphism palette).
 
-| Token | Value | CSS variable |
+| Token | Value | Notes |
 |---|---|---|
-| `pageBg` | `#121212` | — |
-| `bg` | `#1E1E1E` | `--card` |
-| `headerBg` | `#2A2A2A` | `--card2` |
-| `separator` | `rgba(255,255,255,0.07)` | `--divider` |
-| `positive` | `#52BC6A` | `--green` |
-| `negative` | `#FF5757` | `--red` |
+| `pageBg` | `#0A0A10` | Deepest backdrop tone, behind the colour mesh. |
+| `bg` | `rgba(255,255,255,0.07)` | Glass panel fill (was solid `--card #1E1E1E`). |
+| `headerBg` | `rgba(255,255,255,0.10)` | Slightly brighter glass fill for elevated sections. |
+| `rowAlt` | `rgba(255,255,255,0.035)` | Subtle alternating row tint (was solid grey). |
+| `accent` | `#FF7A33` | Brand orange, brightened for glass contrast. |
+| `separator` | `rgba(255,255,255,0.18)` | Glass hairline border colour. |
+| `positive` | `#6EE787` | Brighter green — must win contrast against the colour mesh. |
+| `negative` | `#FF6B6B` | Brighter red — same reason. |
+| `avatarBg` | `rgba(255,255,255,0.12)` | Avatar placeholder fill. |
+| `trackedBg` | `rgba(255,122,51,0.14)` | Tracked-player row highlight. |
+| `meshOrange` | `rgba(255,85,0,0.55)` | Mesh backdrop blob colour. |
+| `meshTeal` | `rgba(0,194,204,0.42)` | Mesh backdrop blob colour. |
+| `meshViolet` | `rgba(130,90,255,0.38)` | Mesh backdrop blob colour. |
+| `positiveBorder` / `positiveTint` | `rgba(110,231,135,0.55)` / `rgba(110,231,135,0.14)` | Glass chip border/fill for positive signed values. |
+| `negativeBorder` / `negativeTint` | `rgba(255,107,107,0.55)` / `rgba(255,107,107,0.14)` | Glass chip border/fill for negative signed values. |
 
-Skill-badge colours (levels 1–10) must match the web-app skill-bar segments exactly (grey / green / gold / orange / brand-orange). If you change one side, update the other.
+Skill-badge colours (levels 1–10, `SKILL_COLOR`) are unchanged by the glassmorphism redesign and must still match the web-app skill-bar segments exactly (grey / green / gold / orange / brand-orange). If you change one side, update the other.
+
+## Glassmorphism Panel Technique
+
+- `GLASS_BLUR` (30px), `GLASS_RADIUS` (20px), and `CARD_MARGIN` (20px) are the core tuning constants for the frosted-glass look. `GLASS_BLUR` controls how soft the mesh looks through a panel; `GLASS_RADIUS` is the default outer card/section corner radius; `CARD_MARGIN` is the extra gutter added on every side by `renderAsGlassCard` so the sharp colour mesh is visible outside the card edges too.
+- Every card shares one colourful "mesh" backdrop, drawn by `drawMesh` — three radial-gradient blobs (brand orange, teal, violet) over a near-black `pageBg` base.
+- Canvas has no live `backdrop-filter` equivalent, so the frosted-panel effect is faked in `drawGlassPanel`: the mesh is redrawn at full canvas size, clipped to the panel's rounded-rect path, and blurred via `ctx.filter = 'blur(Npx)'` before a translucent tint is filled on top and a hairline `separator`-coloured border is stroked. This has been verified to render correctly in `@napi-rs/canvas`.
+- Signed-value cells (Rating, K-D, ELO delta, Win%) no longer render as plain coloured text — they render as pill-shaped translucent "glass chips" via `drawGlassChip` (coloured border + coloured text over a light colour-matched tint fill).
+- `renderAsGlassCard(width, contentHeight, draw)` is the shared entry point that wraps a card's `draw(ctx)` callback: it paints the sharp mesh across the full (margin-inclusive) canvas, then translates into the `CARD_MARGIN`-inset content area before invoking `draw`.
 
 ## Fonts
 

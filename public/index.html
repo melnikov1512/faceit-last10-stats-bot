@@ -10,28 +10,69 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
-            --bg:        #121212;
-            --card:      #1E1E1E;
-            --card2:     #2A2A2A;
-            --divider:   rgba(255,255,255,0.07);
+            /* Glassmorphism palette — kept in sync with COLOR in
+               src/services/imageService.js (see that file's header comment
+               for the canonical source of truth). */
+            --bg:        #0A0A10;
+            --card:      rgba(255,255,255,0.07);
+            --card2:     rgba(255,255,255,0.10);
+            --divider:   rgba(255,255,255,0.18);
             --text:      #FFFFFF;
-            --text-sub:  #9E9E9E;
-            --orange:    #FF5500;
-            --orange-dim:#FF5500;
+            --text-sub:  #D6D2CE;
+            --orange:    #FF7A33;
+            --orange-dim:#FF7A33;
             --blue:      #409CFF;
-            --red:       #FF5757;
-            --tracked:   #FF5500;
-            --green:     #52BC6A;
+            --red:       #FF6B6B;
+            --tracked:   #FF7A33;
+            --green:     #6EE787;
+
+            /* Mesh backdrop blob colours */
+            --mesh-orange: rgba(255,85,0,0.55);
+            --mesh-teal:   rgba(0,194,204,0.42);
+            --mesh-violet: rgba(130,90,255,0.38);
+
+            /* Glass chip tint/border colours */
+            --positive-border: rgba(110,231,135,0.55);
+            --positive-tint:   rgba(110,231,135,0.14);
+            --negative-border: rgba(255,107,107,0.55);
+            --negative-tint:   rgba(255,107,107,0.14);
+
+            --row-alt:    rgba(255,255,255,0.035);
+            --avatar-bg:  rgba(255,255,255,0.12);
+            --tracked-bg: rgba(255,122,51,0.14);
+
+            --glass-blur: blur(20px) saturate(150%);
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
+        html { background: var(--bg); }
+
         body {
-            background: var(--bg);
+            background: transparent;
             color: var(--text);
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             min-height: 100vh;
             padding: 0;
+            position: relative;
+        }
+
+        /* ── Mesh backdrop ──
+           Fixed, full-viewport layer behind all content: deep near-black
+           base plus three soft blurred colour blobs, mirroring drawMesh()
+           in imageService.js so the Mini App reads as the same "glass over
+           colourful mesh" surface as the generated PNG cards. Stays fixed
+           while page content scrolls so it reads as one continuous backdrop. */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            background-color: var(--bg);
+            background-image:
+                radial-gradient(circle at 12% 5%,  var(--mesh-orange) 0%, transparent 60%),
+                radial-gradient(circle at 95% 30%, var(--mesh-teal)   0%, transparent 60%),
+                radial-gradient(circle at 55% 105%, var(--mesh-violet) 0%, transparent 65%);
         }
 
         /* ── Top bar ── */
@@ -57,15 +98,20 @@
 
         .refresh-icon-btn {
             background: var(--card2);
-            border: none;
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--divider);
             color: var(--text-sub);
             cursor: pointer;
             width: 38px; height: 38px;
             display: flex; align-items: center; justify-content: center;
-            border-radius: 10px;
+            border-radius: 12px;
             flex-shrink: 0;
             padding: 0;
             transition: color 0.15s, background 0.15s;
+        }
+        @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+            .refresh-icon-btn { background: #23232b; }
         }
         .refresh-icon-btn:active { background: var(--orange); color: #fff; }
         .refresh-icon-btn.spinning svg { animation: spin 0.8s linear infinite; }
@@ -108,9 +154,15 @@
 
         .match-card {
             background: var(--card);
-            border-radius: 14px;
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--divider);
+            border-radius: 20px;
             margin-bottom: 14px;
             overflow: hidden;
+        }
+        @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+            .match-card { background: #1c1c24; }
         }
 
         /* ── Match header ── */
@@ -132,8 +184,8 @@
 
         .match-game-icon {
             width: 34px; height: 34px;
-            border-radius: 7px;
-            background: #2C2C2C;
+            border-radius: 9px;
+            background: var(--avatar-bg);
             flex-shrink: 0;
             display: flex; align-items: center; justify-content: center;
             font-size: 19px;
@@ -141,11 +193,11 @@
 
         .match-map-img {
             width: 34px; height: 34px;
-            border-radius: 7px;
+            border-radius: 9px;
             object-fit: cover;
             flex-shrink: 0;
             display: block;
-            background: #2C2C2C;
+            background: var(--avatar-bg);
         }
 
         .match-meta { min-width: 0; }
@@ -182,15 +234,15 @@
         }
         .match-status:active { opacity: 0.75; }
 
-        .status-ONGOING     { background: rgba(82,188,106,0.15);  color: var(--green); }
-        .status-READY       { background: rgba(255,85,0,0.15);    color: var(--orange); }
-        .status-VOTING      { background: rgba(255,85,0,0.1);     color: #FF8C00; }
-        .status-CONFIGURING { background: rgba(255,255,255,0.07); color: var(--text-sub); }
+        .status-ONGOING     { background: var(--positive-tint); color: var(--green); border: 1px solid var(--positive-border); }
+        .status-READY       { background: rgba(255,122,51,0.14); color: var(--orange); border: 1px solid rgba(255,122,51,0.55); }
+        .status-VOTING      { background: rgba(255,140,0,0.14);  color: #FF8C00; border: 1px solid rgba(255,140,0,0.5); }
+        .status-CONFIGURING { background: rgba(255,255,255,0.10); color: var(--text-sub); border: 1px solid var(--divider); }
         .status-FINISHED,
         .status-CANCELLED,
         .status-ABORTED,
         .status-WALKOVER,
-        .status-DROPPED     { background: rgba(255,255,255,0.06); color: var(--text-sub); }
+        .status-DROPPED     { background: rgba(255,255,255,0.08); color: var(--text-sub); border: 1px solid var(--divider); }
 
         /* ── VS / Score section ── */
         .vs-section {
@@ -229,11 +281,11 @@
         .team-avatar {
             width: 28px; height: 28px;
             border-radius: 50%;
-            background: var(--card2);
+            background: var(--avatar-bg);
             font-size: 11px; font-weight: 700;
             display: flex; align-items: center; justify-content: center;
             flex-shrink: 0; color: var(--text-sub);
-            border: 1px solid rgba(255,255,255,0.08);
+            border: 1px solid var(--divider);
         }
 
         /* Row 2: elo | score | elo */
@@ -351,7 +403,7 @@
         }
 
         .player-row.tracked {
-            background: rgba(255, 85, 0, 0.06);
+            background: var(--tracked-bg);
         }
 
         .player-row.tracked::before {
@@ -366,7 +418,7 @@
         .player-avatar {
             width: 36px; height: 36px;
             border-radius: 50%;
-            background: #2C2C2C;
+            background: var(--avatar-bg);
             flex-shrink: 0;
             object-fit: cover;
         }
@@ -374,7 +426,7 @@
         .player-avatar-placeholder {
             width: 36px; height: 36px;
             border-radius: 50%;
-            background: #2C2C2C;
+            background: var(--avatar-bg);
             flex-shrink: 0;
             display: flex; align-items: center; justify-content: center;
             font-size: 16px;
@@ -523,10 +575,10 @@
             flex-shrink: 0;
         }
 
-        .stats-avatar { object-fit: cover; background: #2C2C2C; }
+        .stats-avatar { object-fit: cover; background: var(--avatar-bg); }
 
         .stats-avatar-ph {
-            background: #2C2C2C;
+            background: var(--avatar-bg);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -743,14 +795,15 @@
         /**
          * Renders a circular FACEIT-style skill badge as an inline SVG.
          * Mirrors drawSkillBadge() from imageService.js:
-         *  – dark background circle (#161616)
+         *  – translucent dark background circle (rgba(10,10,16,0.55), matches
+         *    the tweak applied to drawSkillBadge() in imageService.js)
          *  – 300° coloured arc (gap at bottom centre)
          *  – coloured level number in the centre
          */
         function renderSkillBadge(level) {
             const l = parseInt(level);
             if (!l || l < 1 || l > 10) return '';
-            const color   = SKILL_COLORS[l] || '#9E9E9E';
+            const color   = SKILL_COLORS[l] || '#D6D2CE';
             const r       = 15;                          // outer badge radius → 30×30 px
             const size    = r * 2;
             const cx = r, cy = r;
@@ -761,7 +814,7 @@
             const gapLen  = +(circ - arcLen).toFixed(2);
             const fs      = Math.round(r * 0.82);                     // ≈ 12 px
             return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="skill-badge" aria-label="Skill level ${l} of 10">`
-                + `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#161616"/>`
+                + `<circle cx="${cx}" cy="${cy}" r="${r}" fill="rgba(10,10,16,0.55)"/>`
                 + `<circle cx="${cx}" cy="${cy}" r="${arcR}" fill="none"`
                 +  ` stroke="${color}" stroke-width="${lineW}" stroke-linecap="round"`
                 +  ` stroke-dasharray="${arcLen} ${gapLen}" transform="rotate(120,${cx},${cy})"/>`
@@ -974,7 +1027,7 @@
                 match.best_of ? `BO${match.best_of}` : null,
             ].filter(Boolean);
 
-            const extIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF5500" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;display:block"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+            const extIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF7A33" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;display:block"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
             const hasStats = !!match.matchStats;
             const multiMap = hasStats && match.matchStats.maps.length > 1;
 

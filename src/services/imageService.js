@@ -8,22 +8,178 @@ GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'Inter-Regular.woff2'), 'Inter
 GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'Inter-Bold.woff2'),    'Inter');
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
-// Palette is aligned with the web app (public/index.html) CSS variables:
-// --bg:#121212  --card:#1E1E1E  --card2:#2A2A2A  --divider:rgba(255,255,255,0.07)
+// Frosted-glass palette: translucent whites for panel fills/borders,
+// a colourful mesh backdrop (drawn separately, see drawMesh()) instead of a
+// flat dark background, and saturated FACEIT-adjacent colours reserved for
+// chip borders/text (glass panels stay near-white/translucent; colour lives
+// in accents, not fills — unlike the solid tonal fills of Material).
 const COLOR = {
-    pageBg:    '#121212',                   // inter-card gap / page background
-    bg:        '#1E1E1E',                   // card surface  (--card)
-    headerBg:  '#2A2A2A',                   // elevated sections: header, footer, player-card bg (--card2)
-    rowAlt:    '#252525',                   // subtle alternating row tint
-    accent:    '#FF5500',                   // brand orange  (--orange)
-    text:      '#FFFFFF',                   // primary text  (--text)
-    subtext:   '#9E9E9E',                   // secondary text (--text-sub)
-    positive:  '#52BC6A',                   // win / ELO up  (--green)
-    negative:  '#FF5757',                   // lose / ELO down (--red)
-    separator: 'rgba(255,255,255,0.07)',    // hairline dividers (--divider)
-    avatarBg:  '#2A2A2A',                   // avatar placeholder background
-    trackedBg: 'rgba(255,85,0,0.06)',       // tracked-player row tint (matches web app)
+    pageBg:    '#0A0A10',                     // deepest backdrop tone, behind the colour mesh
+    bg:        'rgba(255,255,255,0.07)',      // glass panel fill (was solid --card #1E1E1E)
+    headerBg:  'rgba(255,255,255,0.10)',      // slightly brighter glass fill for elevated sections
+    rowAlt:    'rgba(255,255,255,0.035)',     // subtle alternating row tint (was solid grey)
+    accent:    '#FF7A33',                     // brand orange, brightened slightly for glass contrast
+    text:      '#FFFFFF',
+    subtext:   '#D6D2CE',                     // warmer/brighter than production's #9E9E9E — needed for
+                                               // legibility over a busy blurred backdrop
+    positive:  '#6EE787',                     // brighter green — must win contrast against colour mesh
+    negative:  '#FF6B6B',                     // brighter red — same reason
+    separator: 'rgba(255,255,255,0.18)',      // glass hairline border colour
+    avatarBg:  'rgba(255,255,255,0.12)',
+    trackedBg: 'rgba(255,122,51,0.14)',
+
+    // Mesh backdrop blob colours — the "colour behind the glass".
+    meshOrange: 'rgba(255,85,0,0.55)',
+    meshTeal:   'rgba(0,194,204,0.42)',
+    meshViolet: 'rgba(130,90,255,0.38)',
+
+    // Glass border/tint colours used for signed-value chips
+    // (Rating/K-D/ELO-delta/Win%) — colour lives in the border + text, the
+    // fill itself stays a light glass tint of that colour.
+    positiveBorder: 'rgba(110,231,135,0.55)',
+    positiveTint:   'rgba(110,231,135,0.14)',
+    negativeBorder: 'rgba(255,107,107,0.55)',
+    negativeTint:   'rgba(255,107,107,0.14)',
 };
+
+// Blur radius used for every frosted panel — tuned so the mesh
+// colours stay recognisable but no hard edges show through.
+const GLASS_BLUR = 30;
+const GLASS_RADIUS = 20; // outer card + section corner radius
+
+/**
+ * Deterministic colourful "mesh" backdrop — three soft radial blobs
+ * (brand orange, teal, violet) on a near-black base. Drawn twice per card:
+ * once sharp as the true background (outside/behind all glass panels), and
+ * once again — clipped + blurred — inside every glass panel, so the panel
+ * appears to be frosted glass floating over this backdrop.
+ */
+function drawMesh(ctx, w, h) {
+    ctx.fillStyle = COLOR.pageBg;
+    ctx.fillRect(0, 0, w, h);
+
+    const blob = (cx, cy, r, color) => {
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g.addColorStop(0, color);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+    };
+
+    blob(w * 0.12, h * 0.05, w * 0.65, COLOR.meshOrange);
+    blob(w * 0.95, h * 0.30, w * 0.55, COLOR.meshTeal);
+    blob(w * 0.55, h * 1.05, w * 0.75, COLOR.meshViolet);
+}
+
+// Rounded-rect path helper (declared early — the whole file leans
+// on it for glass panels/chips).
+function roundedPath(ctx, x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.lineTo(x + w - rr, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+    ctx.lineTo(x + w, y + h - rr);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x + rr, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+    ctx.lineTo(x, y + rr);
+    ctx.quadraticCurveTo(x, y, x + rr, y);
+    ctx.closePath();
+}
+
+/**
+ * Draws a frosted-glass panel: a blurred copy of the mesh backdrop
+ * (clipped to the panel's rounded rect), a translucent white tint on top,
+ * and a hairline light border. `meshW`/`meshH` are the FULL canvas
+ * dimensions — the mesh is redrawn at full size every time so the blob
+ * positions line up with the sharp backdrop behind the panel.
+ */
+function drawGlassPanel(ctx, x, y, w, h, radius, meshW, meshH, tint = COLOR.bg) {
+    ctx.save();
+    roundedPath(ctx, x, y, w, h, radius);
+    ctx.clip();
+    ctx.filter = `blur(${GLASS_BLUR}px)`;
+    drawMesh(ctx, meshW, meshH);
+    ctx.filter = 'none';
+    ctx.fillStyle = tint;
+    ctx.fill();
+    ctx.restore();
+
+    // Hairline border drawn after restore (clip no longer active) so the
+    // stroke isn't itself clipped away at the edge.
+    roundedPath(ctx, x, y, w, h, radius);
+    ctx.strokeStyle = COLOR.separator;
+    ctx.lineWidth   = 1;
+    ctx.stroke();
+}
+
+/**
+ * Small pill-shaped glass chip for signed values (Rating/K-D/
+ * ELO-delta/Win%) — translucent coloured tint + coloured border + coloured
+ * text, instead of a solid tonal fill (keeps the "glass" language: colour
+ * lives at the edges/text, panels stay see-through).
+ */
+function drawGlassChip(ctx, text, x, yCenter, isPositive, align = 'right') {
+    const padX  = 10;
+    const h     = 26;
+    const textW = ctx.measureText(text).width;
+    const w     = textW + padX * 2;
+    let chipX;
+    if (align === 'right')       chipX = x - w;
+    else if (align === 'center') chipX = x - w / 2;
+    else                          chipX = x;
+    const chipY = yCenter - h / 2;
+
+    const tint   = isPositive ? COLOR.positiveTint   : COLOR.negativeTint;
+    const border = isPositive ? COLOR.positiveBorder : COLOR.negativeBorder;
+    const textColor = isPositive ? COLOR.positive : COLOR.negative;
+
+    roundedPath(ctx, chipX, chipY, w, h, h / 2); // fully rounded — chips stay pill-shaped in glass
+    ctx.fillStyle = tint;
+    ctx.fill();
+    ctx.strokeStyle = border;
+    ctx.lineWidth   = 1;
+    ctx.stroke();
+
+    ctx.fillStyle    = textColor;
+    ctx.textAlign    = 'center';
+    const prevBaseline = ctx.textBaseline;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, chipX + w / 2, chipY + h / 2 + 1);
+    ctx.textBaseline = prevBaseline;
+    return w;
+}
+
+// Outer margin so the rounded glass card silhouette (and the mesh
+// bleeding past its edges) is visible against the deep backdrop.
+const CARD_MARGIN = 20;
+
+/**
+ * Wraps `draw(ctx)` so it renders onto a canvas that is
+ * `CARD_MARGIN` px larger on every side. The sharp mesh is painted across
+ * the FULL canvas first (so it's visible in the margin gutter too), then
+ * `draw` runs translated into the (CARD_MARGIN, CARD_MARGIN) content area —
+ * `draw` itself is responsible for calling drawGlassPanel() for its own
+ * card shell using the full (untranslated) mesh dimensions.
+ */
+function renderAsGlassCard(width, contentHeight, draw) {
+    const fullW = width + CARD_MARGIN * 2;
+    const fullH = contentHeight + CARD_MARGIN * 2;
+    const canvas = createCanvas(fullW, fullH);
+    const ctx    = canvas.getContext('2d');
+
+    drawMesh(ctx, fullW, fullH);
+
+    ctx.save();
+    ctx.translate(CARD_MARGIN, CARD_MARGIN);
+    draw(ctx, fullW, fullH);
+    ctx.restore();
+
+    return canvas;
+}
 
 // ── Typography ────────────────────────────────────────────────────────────────
 const FONT_FAMILY = 'Inter';
@@ -148,11 +304,10 @@ function drawAvatarPlaceholder(ctx, letter, cx, cy, r) {
 // ── Section renderers ─────────────────────────────────────────────────────────
 
 function drawHeader(ctx, matchesCount) {
-    // Subtle gradient: header transitions from slightly lighter top to card surface
-    const headerGrad = ctx.createLinearGradient(0, 0, 0, HEADER_H);
-    headerGrad.addColorStop(0, COLOR.headerBg);
-    headerGrad.addColorStop(1, '#222222');
-    ctx.fillStyle = headerGrad;
+    // No separate background fill here — the whole card is already
+    // one frosted-glass panel (see generateStatsImage). A faint overlay
+    // lifts the header slightly to separate it from the rows below.
+    ctx.fillStyle = 'rgba(255,255,255,0.045)';
     ctx.fillRect(0, 0, WIDTH, HEADER_H);
 
     ctx.fillStyle = COLOR.accent;
@@ -183,26 +338,22 @@ function drawHeader(ctx, matchesCount) {
     ctx.fillRect(0, HEADER_H - 1, WIDTH, 1);
 }
 
-function getRatingColor(rating) {
-    if (rating == null) return COLOR.subtext;
-    if (rating >= 1.1)  return COLOR.positive;
-    if (rating < 0.9)   return COLOR.negative;
-    return COLOR.text;
-}
-
 function drawRow(ctx, player, rowIndex, avatar, matchesCount) {
-    const rowY  = HEADER_H + rowIndex * ROW_H;
-    const textY = rowY + ROW_H / 2 + 8;
-    const geo   = getAvatarGeometry(COL_X);
+    const rowY    = HEADER_H + rowIndex * ROW_H;
+    const rowMidY = rowY + ROW_H / 2;
+    const textY   = rowMidY + 7;
+    const geo     = getAvatarGeometry(COL_X);
 
-    ctx.fillStyle = rowIndex % 2 === 0 ? COLOR.bg : COLOR.rowAlt;
+    // Alternating rows are just a very faint overlay on the shared
+    // glass panel — no second blur pass, keeps a single coherent frosted sheet.
+    ctx.fillStyle = rowIndex % 2 === 0 ? 'rgba(255,255,255,0)' : COLOR.rowAlt;
     ctx.fillRect(0, rowY, WIDTH, ROW_H);
 
     ctx.fillStyle = COLOR.separator;
     ctx.fillRect(0, rowY + ROW_H - 1, WIDTH, 1);
 
     const avatarCx = COL_X[0] + geo.avatarCxOffset;
-    const avatarCy = rowY + ROW_H / 2;
+    const avatarCy = rowMidY;
     if (avatar) {
         drawCircularAvatar(ctx, avatar, avatarCx, avatarCy, AVATAR_R);
     } else {
@@ -224,33 +375,49 @@ function drawRow(ctx, player, rowIndex, avatar, matchesCount) {
     const eloText  = player.elo_change != null
         ? `${player.elo_change >= 0 ? '+' : ''}${player.elo_change}`
         : '—';
-    const eloColor = player.elo_change > 0 ? COLOR.positive
-                   : player.elo_change < 0 ? COLOR.negative
-                   : COLOR.subtext;
+
     if (hasRatingCol) {
         const rating = player.estimated_rating;
-        const rText = rating != null ? `~${rating.toFixed(2)}` : '—';
-        const rColor = getRatingColor(rating);
+        const rText  = rating != null ? `~${rating.toFixed(2)}` : '—';
+        const kd     = parseFloat(player.kills_deaths_ratio);
 
-        drawStatCell(ctx, rText, 1, textY, rColor);
+        // Rating/K-D/ELO-delta rendered as translucent glass chips
+        // (coloured border + text, tinted fill) instead of plain coloured text.
+        if (rating != null) {
+            drawGlassChip(ctx, rText, COL_X[1] + COLUMNS[1].w - CELL_PAD, rowMidY, rating >= 1.0, 'right');
+        } else {
+            drawStatCell(ctx, rText, 1, textY, COLOR.subtext);
+        }
         drawStatCell(ctx, parseFloat(player.average_damage_per_round).toFixed(1), 2, textY);
-        drawStatCell(ctx, parseFloat(player.kills_deaths_ratio).toFixed(2),       3, textY);
+        drawGlassChip(ctx, kd.toFixed(2), COL_X[3] + COLUMNS[3].w - CELL_PAD, rowMidY, kd >= 1.0, 'right');
         drawStatCell(ctx, parseFloat(player.average_kills).toFixed(1),            4, textY);
         drawStatCell(ctx, player.current_elo != null ? String(player.current_elo) : '—', 5, textY, COLOR.subtext);
-        drawStatCell(ctx, eloText, 6, textY, eloColor);
+        if (player.elo_change != null) {
+            drawGlassChip(ctx, eloText, COL_X[6] + COLUMNS[6].w - CELL_PAD, rowMidY, player.elo_change >= 0, 'right');
+        } else {
+            drawStatCell(ctx, eloText, 6, textY, COLOR.subtext);
+        }
         return;
     }
 
     drawStatCell(ctx, parseFloat(player.average_damage_per_round).toFixed(1), 1, textY);
-    drawStatCell(ctx, parseFloat(player.kills_deaths_ratio).toFixed(2),       2, textY);
+    {
+        const kd = parseFloat(player.kills_deaths_ratio);
+        drawGlassChip(ctx, kd.toFixed(2), COL_X[2] + COLUMNS[2].w - CELL_PAD, rowMidY, kd >= 1.0, 'right');
+    }
     drawStatCell(ctx, parseFloat(player.average_kills).toFixed(1),            3, textY);
     drawStatCell(ctx, player.current_elo != null ? String(player.current_elo) : '—', 4, textY, COLOR.subtext);
-    drawStatCell(ctx, eloText, 5, textY, eloColor);
+    if (player.elo_change != null) {
+        drawGlassChip(ctx, eloText, COL_X[5] + COLUMNS[5].w - CELL_PAD, rowMidY, player.elo_change >= 0, 'right');
+    } else {
+        drawStatCell(ctx, eloText, 5, textY, COLOR.subtext);
+    }
 }
 
 function drawFooter(ctx, playerCount, hasEstimatedRating = false) {
     const footerY = HEADER_H + playerCount * ROW_H;
-    ctx.fillStyle = COLOR.headerBg;
+    // Faint overlay only — same shared glass panel as the rest of the card.
+    ctx.fillStyle = 'rgba(255,255,255,0.045)';
     ctx.fillRect(0, footerY, WIDTH, FOOTER_H);
     ctx.fillStyle = COLOR.subtext;
     ctx.font      = FONT.footer;
@@ -287,16 +454,17 @@ async function generateStatsImage(leaderboard, matchesCount) {
     COL_X   = getColX(COLUMNS);
 
     const avatars = await loadAvatars(leaderboard);
+    const contentHeight = HEADER_H + leaderboard.length * ROW_H + FOOTER_H;
 
-    const canvas = createCanvas(WIDTH, HEADER_H + leaderboard.length * ROW_H + FOOTER_H);
-    const ctx    = canvas.getContext('2d');
+    // The whole card is ONE frosted-glass panel (single blur pass);
+    // header/row/footer only add faint overlay tints on top of it.
+    const canvas = renderAsGlassCard(WIDTH, contentHeight, (ctx, fullW, fullH) => {
+        drawGlassPanel(ctx, 0, 0, WIDTH, contentHeight, GLASS_RADIUS, fullW, fullH);
 
-    ctx.fillStyle = COLOR.bg;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    drawHeader(ctx, matchesCount);
-    leaderboard.forEach((player, i) => drawRow(ctx, player, i, avatars[i], matchesCount));
-    drawFooter(ctx, leaderboard.length, showRating);
+        drawHeader(ctx, matchesCount);
+        leaderboard.forEach((player, i) => drawRow(ctx, player, i, avatars[i], matchesCount));
+        drawFooter(ctx, leaderboard.length, showRating);
+    });
 
     return canvas.toBuffer('image/png');
 }
@@ -311,7 +479,7 @@ const MATCH = {
     TEAM_H:       64,   // one team row
     DIVIDER_H:    1,
     FOOTER_H:     34,
-    BADGE_R:      5,
+    BADGE_R:      13,   // fully rounded pill (h/2 for h=26)
 };
 
 /**
@@ -378,12 +546,16 @@ function drawTeamBlock(ctx, team, y) {
         const pillH    = 26;
         const pillX    = rightX - pillW;
         const pillY    = y + TEAM_H / 2 - pillH / 2;
-        const pillColor = hasTracked ? COLOR.accent : 'rgba(255,255,255,0.08)';
+        const pillColor  = hasTracked ? 'rgba(255,122,51,0.16)' : 'rgba(255,255,255,0.08)';
+        const pillBorder = hasTracked ? 'rgba(255,122,51,0.6)'  : COLOR.separator;
 
         roundRect(ctx, pillX, pillY, pillW, pillH, BADGE_R);
         ctx.fillStyle = pillColor;
         ctx.fill();
-        ctx.fillStyle = hasTracked ? COLOR.text : COLOR.subtext;
+        ctx.strokeStyle = pillBorder; // hairline border, consistent with chip styling
+        ctx.lineWidth   = 1;
+        ctx.stroke();
+        ctx.fillStyle = hasTracked ? COLOR.accent : COLOR.subtext;
         ctx.textAlign = 'center';
         ctx.fillText(label, pillX + pillW / 2, pillY + 17);
 
@@ -414,60 +586,56 @@ async function generateMatchImage(matchInfo) {
     const { WIDTH: W, PADDING: P, ACCENT_H, HEADER_H, TEAM_H, DIVIDER_H, FOOTER_H } = MATCH;
     const HEIGHT = ACCENT_H + HEADER_H + TEAM_H + DIVIDER_H + TEAM_H + FOOTER_H;
 
-    const canvas = createCanvas(W, HEIGHT);
-    const ctx    = canvas.getContext('2d');
+    // Whole card is one frosted-glass panel over the colour mesh.
+    const canvas = renderAsGlassCard(W, HEIGHT, (ctx, fullW, fullH) => {
+        drawGlassPanel(ctx, 0, 0, W, HEIGHT, GLASS_RADIUS, fullW, fullH);
 
-    ctx.fillStyle = COLOR.bg;
-    ctx.fillRect(0, 0, W, HEIGHT);
+        // ── Header ────────────────────────────────────────────────────────────
+        ctx.fillStyle = 'rgba(255,255,255,0.045)';
+        ctx.fillRect(0, 0, W, ACCENT_H + HEADER_H);
 
-    // ── Header ────────────────────────────────────────────────────────────────
-    const matchHdrGrad = ctx.createLinearGradient(0, 0, 0, ACCENT_H + HEADER_H);
-    matchHdrGrad.addColorStop(0, COLOR.headerBg);
-    matchHdrGrad.addColorStop(1, '#222222');
-    ctx.fillStyle = matchHdrGrad;
-    ctx.fillRect(0, 0, W, ACCENT_H + HEADER_H);
+        ctx.fillStyle = COLOR.accent;
+        ctx.fillRect(0, 0, W, ACCENT_H);
 
-    ctx.fillStyle = COLOR.accent;
-    ctx.fillRect(0, 0, W, ACCENT_H);
+        // Title
+        ctx.fillStyle = COLOR.text;
+        ctx.font      = `bold 22px ${FONT_FAMILY}`;
+        ctx.textAlign = 'left';
+        ctx.fillText('MATCH FOUND', P, ACCENT_H + 36);
 
-    // Title
-    ctx.fillStyle = COLOR.text;
-    ctx.font      = `bold 24px ${FONT_FAMILY}`;
-    ctx.textAlign = 'left';
-    ctx.fillText('MATCH FOUND', P, ACCENT_H + 36);
+        // Meta
+        const metaParts = [competition, region, bestOf ? `BO${bestOf}` : null].filter(Boolean);
+        ctx.fillStyle = COLOR.subtext;
+        ctx.font      = `15px ${FONT_FAMILY}`;
+        ctx.fillText(metaParts.length ? metaParts.join('  ·  ') : 'CS2', P, ACCENT_H + 60);
 
-    // Meta
-    const metaParts = [competition, region, bestOf ? `BO${bestOf}` : null].filter(Boolean);
-    ctx.fillStyle = COLOR.subtext;
-    ctx.font      = `15px ${FONT_FAMILY}`;
-    ctx.fillText(metaParts.length ? metaParts.join('  ·  ') : 'CS2', P, ACCENT_H + 60);
+        // VS
+        ctx.fillStyle = COLOR.accent;
+        ctx.font      = `bold 24px ${FONT_FAMILY}`;
+        ctx.textAlign = 'right';
+        ctx.fillText('VS', W - P, ACCENT_H + 50);
 
-    // VS
-    ctx.fillStyle = COLOR.accent;
-    ctx.font      = `bold 26px ${FONT_FAMILY}`;
-    ctx.textAlign = 'right';
-    ctx.fillText('VS', W - P, ACCENT_H + 50);
+        ctx.fillStyle = COLOR.separator;
+        ctx.fillRect(0, ACCENT_H + HEADER_H - 1, W, 1);
 
-    ctx.fillStyle = COLOR.separator;
-    ctx.fillRect(0, ACCENT_H + HEADER_H - 1, W, 1);
+        // ── Teams ─────────────────────────────────────────────────────────────
+        const teamsY = ACCENT_H + HEADER_H;
+        drawTeamBlock(ctx, team1, teamsY);
 
-    // ── Teams ─────────────────────────────────────────────────────────────────
-    const teamsY = ACCENT_H + HEADER_H;
-    drawTeamBlock(ctx, team1, teamsY);
+        ctx.fillStyle = COLOR.separator;
+        ctx.fillRect(0, teamsY + TEAM_H, W, DIVIDER_H);
 
-    ctx.fillStyle = COLOR.separator;
-    ctx.fillRect(0, teamsY + TEAM_H, W, DIVIDER_H);
+        drawTeamBlock(ctx, team2, teamsY + TEAM_H + DIVIDER_H);
 
-    drawTeamBlock(ctx, team2, teamsY + TEAM_H + DIVIDER_H);
-
-    // ── Footer ────────────────────────────────────────────────────────────────
-    const footerY = HEIGHT - FOOTER_H;
-    ctx.fillStyle = COLOR.headerBg;
-    ctx.fillRect(0, footerY, W, FOOTER_H);
-    ctx.fillStyle = COLOR.subtext;
-    ctx.font      = `13px ${FONT_FAMILY}`;
-    ctx.textAlign = 'right';
-    ctx.fillText('FACEIT Stats Bot', W - P, footerY + FOOTER_H / 2 + 4);
+        // ── Footer ────────────────────────────────────────────────────────────
+        const footerY = HEIGHT - FOOTER_H;
+        ctx.fillStyle = 'rgba(255,255,255,0.045)';
+        ctx.fillRect(0, footerY, W, FOOTER_H);
+        ctx.fillStyle = COLOR.subtext;
+        ctx.font      = `13px ${FONT_FAMILY}`;
+        ctx.textAlign = 'right';
+        ctx.fillText('FACEIT Stats Bot', W - P, footerY + FOOTER_H / 2 + 4);
+    });
 
     return canvas.toBuffer('image/png');
 }
@@ -510,10 +678,11 @@ function drawSkillBadge(ctx, level, cx, cy, r) {
 
     ctx.save();
 
-    // Dark background circle
+    // Translucent dark disc (was opaque #161616) — lets a hint of
+    // the blurred mesh show through even in this small isolated element.
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = '#161616';
+    ctx.fillStyle = 'rgba(10,10,16,0.55)';
     ctx.fill();
 
     // Coloured arc — gap at bottom centre (60°→120°, clockwise = 300° arc)
@@ -560,49 +729,46 @@ async function generatePlayerCard(player, action) {
         try { avatar = await loadImage(player.avatar); } catch { /* fallback */ }
     }
 
-    const canvas = createCanvas(W, HEIGHT);
-    const ctx    = canvas.getContext('2d');
+    // Rounded frosted-glass card floating on the colour mesh.
+    const canvas = renderAsGlassCard(W, HEIGHT, (ctx, fullW, fullH) => {
+        drawGlassPanel(ctx, 0, 0, W, HEIGHT, GLASS_RADIUS, fullW, fullH, COLOR.headerBg);
 
-    ctx.fillStyle = COLOR.headerBg;
-    ctx.fillRect(0, 0, W, HEIGHT);
+        ctx.fillStyle = COLOR.accent;
+        ctx.fillRect(0, 0, W, ACCENT_H);
 
-    ctx.fillStyle = COLOR.accent;
-    ctx.fillRect(0, 0, W, ACCENT_H);
+        const midY     = HEIGHT / 2 + ACCENT_H / 2;
+        const avatarCx = P + AVATAR_R;
 
-    const midY    = HEIGHT / 2 + ACCENT_H / 2;
-    const avatarCx = P + AVATAR_R;
+        // Avatar
+        if (avatar) {
+            drawCircularAvatar(ctx, avatar, avatarCx, midY, AVATAR_R);
+        } else {
+            drawAvatarPlaceholder(ctx, player.nickname?.[0], avatarCx, midY, AVATAR_R);
+        }
 
-    // Avatar
-    if (avatar) {
-        drawCircularAvatar(ctx, avatar, avatarCx, midY, AVATAR_R);
-    } else {
-        drawAvatarPlaceholder(ctx, player.nickname?.[0], avatarCx, midY, AVATAR_R);
-    }
+        // Standalone skill badge (right of avatar, same vertical centre)
+        const badgeCx = avatarCx + AVATAR_R + 14 + BADGE_R;
+        drawSkillBadge(ctx, player.skillLevel, badgeCx, midY, BADGE_R);
 
-    // Standalone skill badge (right of avatar, same vertical centre)
-    const badgeCx = avatarCx + AVATAR_R + 14 + BADGE_R;
-    drawSkillBadge(ctx, player.skillLevel, badgeCx, midY, BADGE_R);
+        // Text block (right of badge)
+        const textX = badgeCx + BADGE_R + 16;
 
-    // Text block (right of badge)
-    const textX = badgeCx + BADGE_R + 16;
+        ctx.fillStyle    = COLOR.text;
+        ctx.font         = `bold 22px ${FONT_FAMILY}`;
+        ctx.textAlign    = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText(player.nickname ?? '—', textX, midY - 4);
 
-    ctx.fillStyle    = COLOR.text;
-    ctx.font         = `bold 24px ${FONT_FAMILY}`;
-    ctx.textAlign    = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(player.nickname ?? '—', textX, midY - 4);
+        ctx.fillStyle = COLOR.text;
+        ctx.font      = `bold 18px ${FONT_FAMILY}`;
+        ctx.fillText(player.elo != null ? `${player.elo} ELO` : '—', textX, midY + 22);
 
-    ctx.fillStyle = COLOR.text;
-    ctx.font      = `bold 20px ${FONT_FAMILY}`;
-    ctx.fillText(player.elo != null ? `${player.elo} ELO` : '—', textX, midY + 22);
-
-    // Action label (top-right)
-    const actionLabel = action === 'added' ? 'Player added' : 'Player removed';
-    ctx.fillStyle    = action === 'added' ? COLOR.positive : COLOR.negative;
-    ctx.font         = `bold 13px ${FONT_FAMILY}`;
-    ctx.textAlign    = 'right';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(actionLabel, W - P, ACCENT_H + 18);
+        // Action label as a translucent glass chip (coloured border
+        // + text) instead of plain coloured text.
+        const actionLabel = action === 'added' ? 'PLAYER ADDED' : 'PLAYER REMOVED';
+        ctx.font = `bold 12px ${FONT_FAMILY}`;
+        drawGlassChip(ctx, actionLabel, W - P, ACCENT_H + 24, action === 'added', 'right');
+    });
 
     return canvas.toBuffer('image/png');
 }
@@ -634,95 +800,91 @@ async function generatePlayersListImage(players) {
         try { return await loadImage(avatar); } catch { return null; }
     }));
 
-    const canvas = createCanvas(W, HEIGHT);
-    const ctx    = canvas.getContext('2d');
+    // Whole card is one frosted-glass panel over the colour mesh.
+    const canvas = renderAsGlassCard(W, HEIGHT, (ctx, fullW, fullH) => {
+        drawGlassPanel(ctx, 0, 0, W, HEIGHT, GLASS_RADIUS, fullW, fullH);
 
-    ctx.fillStyle = COLOR.bg;
-    ctx.fillRect(0, 0, W, HEIGHT);
+        // ── Header ────────────────────────────────────────────────────────────
+        ctx.fillStyle = 'rgba(255,255,255,0.045)';
+        ctx.fillRect(0, 0, W, ACCENT_H + HEADER_H);
 
-    // ── Header ────────────────────────────────────────────────────────────────
-    const listHdrGrad = ctx.createLinearGradient(0, 0, 0, ACCENT_H + HEADER_H);
-    listHdrGrad.addColorStop(0, COLOR.headerBg);
-    listHdrGrad.addColorStop(1, '#222222');
-    ctx.fillStyle = listHdrGrad;
-    ctx.fillRect(0, 0, W, ACCENT_H + HEADER_H);
+        ctx.fillStyle = COLOR.accent;
+        ctx.fillRect(0, 0, W, ACCENT_H);
 
-    ctx.fillStyle = COLOR.accent;
-    ctx.fillRect(0, 0, W, ACCENT_H);
-
-    ctx.fillStyle    = COLOR.text;
-    ctx.font         = `bold 22px ${FONT_FAMILY}`;
-    ctx.textAlign    = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText('TRACKED PLAYERS', P, ACCENT_H + 34);
-
-    ctx.fillStyle = COLOR.subtext;
-    ctx.font      = `14px ${FONT_FAMILY}`;
-    ctx.textAlign = 'right';
-    ctx.fillText(`${players.length} player${players.length !== 1 ? 's' : ''}`, W - P, ACCENT_H + 34);
-
-    ctx.fillStyle = COLOR.separator;
-    ctx.fillRect(0, ACCENT_H + HEADER_H - 1, W, 1);
-
-    // ── Rows ──────────────────────────────────────────────────────────────────
-    players.forEach((player, i) => {
-        const rowY  = ACCENT_H + HEADER_H + i * ROW_H;
-        const midY  = rowY + ROW_H / 2;
-        const textY = midY + 6;
-
-        ctx.fillStyle = i % 2 === 0 ? COLOR.bg : COLOR.rowAlt;
-        ctx.fillRect(0, rowY, W, ROW_H);
-
-        ctx.fillStyle = COLOR.separator;
-        ctx.fillRect(0, rowY + ROW_H - 1, W, 1);
-
-        // Rank
-        ctx.fillStyle    = i === 0 ? COLOR.accent : COLOR.subtext;
-        ctx.font         = `bold 14px ${FONT_FAMILY}`;
-        ctx.textAlign    = 'right';
-        ctx.textBaseline = 'alphabetic';
-        ctx.fillText(String(i + 1), P - 8, textY);
-
-        // Avatar
-        const avatarCx = P + AVATAR_R;
-        if (avatars[i]) {
-            drawCircularAvatar(ctx, avatars[i], avatarCx, midY, AVATAR_R);
-        } else {
-            drawAvatarPlaceholder(ctx, player.nickname?.[0], avatarCx, midY, AVATAR_R);
-        }
-
-        // Skill badge (standalone, right of avatar)
-        const badgeCx = avatarCx + AVATAR_R + 10 + BADGE_R;
-        drawSkillBadge(ctx, player.skillLevel, badgeCx, midY, BADGE_R);
-
-        // Nickname
-        const nameX = badgeCx + BADGE_R + 14;
         ctx.fillStyle    = COLOR.text;
-        ctx.font         = `bold 18px ${FONT_FAMILY}`;
+        ctx.font         = `bold 20px ${FONT_FAMILY}`;
         ctx.textAlign    = 'left';
         ctx.textBaseline = 'alphabetic';
-        ctx.fillText(truncateText(ctx, player.nickname, W - nameX - P - 90), nameX, textY);
-
-        // ELO (right, white + bold)
-        ctx.fillStyle = COLOR.text;
-        ctx.font      = `bold 18px ${FONT_FAMILY}`;
-        ctx.textAlign = 'right';
-        ctx.fillText(player.elo != null ? `${player.elo}` : '—', W - P, midY - 4);
+        ctx.fillText('TRACKED PLAYERS', P, ACCENT_H + 34);
 
         ctx.fillStyle = COLOR.subtext;
-        ctx.font      = `13px ${FONT_FAMILY}`;
-        ctx.fillText('ELO', W - P, midY + 14);
-    });
+        ctx.font      = `14px ${FONT_FAMILY}`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`${players.length} player${players.length !== 1 ? 's' : ''}`, W - P, ACCENT_H + 34);
 
-    // ── Footer ────────────────────────────────────────────────────────────────
-    const footerY = HEIGHT - FOOTER_H;
-    ctx.fillStyle = COLOR.headerBg;
-    ctx.fillRect(0, footerY, W, FOOTER_H);
-    ctx.fillStyle    = COLOR.subtext;
-    ctx.font         = `12px ${FONT_FAMILY}`;
-    ctx.textAlign    = 'right';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText('FACEIT Stats Bot', W - P, footerY + FOOTER_H / 2 + 4);
+        ctx.fillStyle = COLOR.separator;
+        ctx.fillRect(0, ACCENT_H + HEADER_H - 1, W, 1);
+
+        // ── Rows ──────────────────────────────────────────────────────────────
+        players.forEach((player, i) => {
+            const rowY  = ACCENT_H + HEADER_H + i * ROW_H;
+            const midY  = rowY + ROW_H / 2;
+            const textY = midY + 6;
+
+            ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0)' : COLOR.rowAlt;
+            ctx.fillRect(0, rowY, W, ROW_H);
+
+            ctx.fillStyle = COLOR.separator;
+            ctx.fillRect(0, rowY + ROW_H - 1, W, 1);
+
+            // Rank
+            ctx.fillStyle    = i === 0 ? COLOR.accent : COLOR.subtext;
+            ctx.font         = `bold 14px ${FONT_FAMILY}`;
+            ctx.textAlign    = 'right';
+            ctx.textBaseline = 'alphabetic';
+            ctx.fillText(String(i + 1), P - 8, textY);
+
+            // Avatar
+            const avatarCx = P + AVATAR_R;
+            if (avatars[i]) {
+                drawCircularAvatar(ctx, avatars[i], avatarCx, midY, AVATAR_R);
+            } else {
+                drawAvatarPlaceholder(ctx, player.nickname?.[0], avatarCx, midY, AVATAR_R);
+            }
+
+            // Skill badge (standalone, right of avatar)
+            const badgeCx = avatarCx + AVATAR_R + 10 + BADGE_R;
+            drawSkillBadge(ctx, player.skillLevel, badgeCx, midY, BADGE_R);
+
+            // Nickname
+            const nameX = badgeCx + BADGE_R + 14;
+            ctx.fillStyle    = COLOR.text;
+            ctx.font         = `bold 18px ${FONT_FAMILY}`;
+            ctx.textAlign    = 'left';
+            ctx.textBaseline = 'alphabetic';
+            ctx.fillText(truncateText(ctx, player.nickname, W - nameX - P - 90), nameX, textY);
+
+            // ELO (right, white + bold)
+            ctx.fillStyle = COLOR.text;
+            ctx.font      = `bold 18px ${FONT_FAMILY}`;
+            ctx.textAlign = 'right';
+            ctx.fillText(player.elo != null ? `${player.elo}` : '—', W - P, midY - 4);
+
+            ctx.fillStyle = COLOR.subtext;
+            ctx.font      = `13px ${FONT_FAMILY}`;
+            ctx.fillText('ELO', W - P, midY + 14);
+        });
+
+        // ── Footer ────────────────────────────────────────────────────────────
+        const footerY = HEIGHT - FOOTER_H;
+        ctx.fillStyle = 'rgba(255,255,255,0.045)';
+        ctx.fillRect(0, footerY, W, FOOTER_H);
+        ctx.fillStyle    = COLOR.subtext;
+        ctx.font         = `12px ${FONT_FAMILY}`;
+        ctx.textAlign    = 'right';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText('FACEIT Stats Bot', W - P, footerY + FOOTER_H / 2 + 4);
+    });
 
     return canvas.toBuffer('image/png');
 }
@@ -783,23 +945,21 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
 
     ctx.textBaseline = 'alphabetic';
 
-    // Background
-    ctx.fillStyle = COLOR.bg;
-    ctx.fillRect(0, Y, W, RESULT_CARD_H);
+    // No background fill here — the caller already painted the
+    // frosted-glass panel for this card's bounds (see generateMatchResultImage
+    // / generateMatchResultsSummaryImage). This function only adds faint
+    // section overlays + content on top of that shared glass surface.
 
     // ── Orange accent bar ──────────────────────────────────────────────────────
     ctx.fillStyle = COLOR.accent;
     ctx.fillRect(0, Y, W, ACCENT_H);
 
     // ── Header ─────────────────────────────────────────────────────────────────
-    const resHdrGrad = ctx.createLinearGradient(0, Y + ACCENT_H, 0, Y + ACCENT_H + HEADER_H);
-    resHdrGrad.addColorStop(0, COLOR.headerBg);
-    resHdrGrad.addColorStop(1, '#222222');
-    ctx.fillStyle = resHdrGrad;
+    ctx.fillStyle = 'rgba(255,255,255,0.045)';
     ctx.fillRect(0, Y + ACCENT_H, W, HEADER_H);
 
     ctx.fillStyle = COLOR.text;
-    ctx.font      = `bold 22px ${FONT_FAMILY}`;
+    ctx.font      = `bold 20px ${FONT_FAMILY}`;
     ctx.textAlign = 'left';
     ctx.fillText('MATCH RESULT', P, Y + ACCENT_H + 36);
 
@@ -808,35 +968,21 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
     ctx.font      = `14px ${FONT_FAMILY}`;
     ctx.fillText(metaParts.length ? metaParts.join('  ·  ') : 'CS2', P, Y + ACCENT_H + 62);
 
-    // WIN / LOSE badge
+    // WIN/LOSE badge as a translucent glass chip (coloured border +
+    // text) instead of a hand-rolled tinted-fill pill.
     const isWin      = result === 1 || result === '1';
     const badgeLabel = isWin ? 'WIN' : 'LOSE';
+    ctx.font = `bold 15px ${FONT_FAMILY}`;
+    const badgeCenterY = Y + ACCENT_H + HEADER_H / 2;
+    drawGlassChip(ctx, badgeLabel, W - P, badgeCenterY, isWin, 'right');
     const badgeColor = isWin ? COLOR.positive : COLOR.negative;
-    ctx.font = `bold 16px ${FONT_FAMILY}`;
-    const bw = ctx.measureText(badgeLabel).width + 24;
-    const bh = 28;
-    const bx = W - P - bw;
-    const by = Y + ACCENT_H + HEADER_H / 2 - bh / 2;
-
-    roundRect(ctx, bx, by, bw, bh, 5);
-    ctx.fillStyle = badgeColor + '33';
-    ctx.fill();
-    roundRect(ctx, bx, by, bw, bh, 5);
-    ctx.strokeStyle = badgeColor;
-    ctx.lineWidth   = 1.5;
-    ctx.stroke();
-    ctx.fillStyle    = badgeColor;
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(badgeLabel, bx + bw / 2, by + bh / 2);
-    ctx.textBaseline = 'alphabetic';
 
     // Score line below badge (e.g. "16 : 12") — shown when both scores are available
     if (teamScore != null && opponentScore != null) {
         ctx.fillStyle = badgeColor;
         ctx.font      = `bold 13px ${FONT_FAMILY}`;
         ctx.textAlign = 'right';
-        ctx.fillText(`${teamScore} : ${opponentScore}`, W - P, by + bh + 16);
+        ctx.fillText(`${teamScore} : ${opponentScore}`, W - P, badgeCenterY + 13 + 16);
     }
 
     ctx.fillStyle = COLOR.separator;
@@ -868,20 +1014,19 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
     ctx.textAlign = 'right';
 
     if (eloChange != null) {
-        const sign       = eloChange >= 0 ? '+' : '';
-        const deltaText  = `${sign}${eloChange} ELO`;
-        const deltaColor = eloChange > 0 ? COLOR.positive : eloChange < 0 ? COLOR.negative : COLOR.subtext;
+        const sign      = eloChange >= 0 ? '+' : '';
+        const deltaText = `${sign}${eloChange} ELO`;
 
         ctx.fillStyle = COLOR.text;
-        ctx.font      = `bold 22px ${FONT_FAMILY}`;
-        ctx.fillText(eloStr, W - P, playerMidY - 8);
+        ctx.font      = `bold 20px ${FONT_FAMILY}`;
+        ctx.fillText(eloStr, W - P, playerMidY - 10);
 
-        ctx.fillStyle = deltaColor;
-        ctx.font      = `bold 14px ${FONT_FAMILY}`;
-        ctx.fillText(deltaText, W - P, playerMidY + 16);
+        // ELO delta as a translucent glass chip instead of plain text.
+        ctx.font = `bold 12px ${FONT_FAMILY}`;
+        drawGlassChip(ctx, deltaText, W - P, playerMidY + 14, eloChange >= 0, 'right');
     } else {
         ctx.fillStyle = COLOR.text;
-        ctx.font      = `bold 22px ${FONT_FAMILY}`;
+        ctx.font      = `bold 20px ${FONT_FAMILY}`;
         ctx.fillText(`${eloStr} ELO`, W - P, playerMidY + 7);
     }
 
@@ -894,12 +1039,13 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
     ctx.fillStyle = COLOR.rowAlt;
     ctx.fillRect(0, statsY, W, STATS_H);
 
+    const kdValue = parseFloat(kd);
     const statCols = [
-        { label: 'KILLS',   value: String(kills)               },
-        { label: 'ASSISTS', value: String(assists)              },
-        { label: 'K/D',     value: parseFloat(kd).toFixed(2)   },
-        { label: 'ADR',     value: parseFloat(adr).toFixed(1)  },
-        { label: 'HS%',     value: `${hsPercent}%`             },
+        { label: 'KILLS',   value: String(kills),   chip: false },
+        { label: 'ASSISTS', value: String(assists), chip: false },
+        { label: 'K/D',     value: kdValue.toFixed(2), chip: true, positive: kdValue >= 1.0 },
+        { label: 'ADR',     value: parseFloat(adr).toFixed(1), chip: false },
+        { label: 'HS%',     value: `${hsPercent}%`, chip: false },
     ];
 
     const colW = (W - 2 * P) / statCols.length;
@@ -911,14 +1057,20 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
         ctx.textAlign = 'center';
         ctx.fillText(col.label, colCx, statsY + 24);
 
-        ctx.fillStyle = COLOR.text;
-        ctx.font      = `bold 22px ${FONT_FAMILY}`;
-        ctx.fillText(col.value, colCx, statsY + 56);
+        // K/D rendered as a glass chip; the rest stay plain text.
+        if (col.chip) {
+            ctx.font = `bold 18px ${FONT_FAMILY}`;
+            drawGlassChip(ctx, col.value, colCx, statsY + 48, col.positive, 'center');
+        } else {
+            ctx.fillStyle = COLOR.text;
+            ctx.font      = `bold 20px ${FONT_FAMILY}`;
+            ctx.fillText(col.value, colCx, statsY + 56);
+        }
     });
 
     // ── Footer ─────────────────────────────────────────────────────────────────
     const footerY = Y + RESULT_CARD_H - FOOTER_H;
-    ctx.fillStyle = COLOR.headerBg;
+    ctx.fillStyle = 'rgba(255,255,255,0.045)';
     ctx.fillRect(0, footerY, W, FOOTER_H);
     ctx.fillStyle = COLOR.subtext;
     ctx.font      = `12px ${FONT_FAMILY}`;
@@ -952,9 +1104,12 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
 async function generateMatchResultImage(data) {
     const { WIDTH: W } = RESULT_CARD;
     const avatar = await _loadAvatar(data.avatar_url);
-    const canvas = createCanvas(W, RESULT_CARD_H);
-    const ctx    = canvas.getContext('2d');
-    _drawMatchResultCard(ctx, data, 0, avatar);
+
+    // Rounded frosted-glass card floating on the colour mesh.
+    const canvas = renderAsGlassCard(W, RESULT_CARD_H, (ctx, fullW, fullH) => {
+        drawGlassPanel(ctx, 0, 0, W, RESULT_CARD_H, GLASS_RADIUS, fullW, fullH);
+        _drawMatchResultCard(ctx, data, 0, avatar);
+    });
     return canvas.toBuffer('image/png');
 }
 
@@ -971,22 +1126,29 @@ async function generateMatchResultsSummaryImage(playersData) {
     }
 
     const { WIDTH: W } = RESULT_CARD;
-    const GAP         = 10;
-    const totalHeight = RESULT_CARD_H * playersData.length + GAP * (playersData.length - 1);
+    const GAP        = 12;
+    const bodyHeight = RESULT_CARD_H * playersData.length + GAP * (playersData.length - 1);
 
     // Load all avatars in parallel — no intermediate PNG encode/decode
     const avatars = await Promise.all(playersData.map(d => _loadAvatar(d.avatar_url)));
 
-    const canvas = createCanvas(W, totalHeight);
+    // Each stacked card is its own frosted-glass panel over the
+    // shared colour mesh — a vertical list of glass cards.
+    const fullW = W + CARD_MARGIN * 2;
+    const fullH = bodyHeight + CARD_MARGIN * 2;
+    const canvas = createCanvas(fullW, fullH);
     const ctx    = canvas.getContext('2d');
 
-    // Page-level background fills gaps between stacked cards (#121212 = --bg from web app)
-    ctx.fillStyle = COLOR.pageBg;
-    ctx.fillRect(0, 0, W, totalHeight);
+    drawMesh(ctx, fullW, fullH);
 
+    ctx.save();
+    ctx.translate(CARD_MARGIN, CARD_MARGIN);
     for (let i = 0; i < playersData.length; i++) {
-        _drawMatchResultCard(ctx, playersData[i], i * (RESULT_CARD_H + GAP), avatars[i]);
+        const offsetY = i * (RESULT_CARD_H + GAP);
+        drawGlassPanel(ctx, 0, offsetY, W, RESULT_CARD_H, GLASS_RADIUS, fullW, fullH);
+        _drawMatchResultCard(ctx, playersData[i], offsetY, avatars[i]);
     }
+    ctx.restore();
 
     return canvas.toBuffer('image/png');
 }
@@ -1059,108 +1221,105 @@ async function generateActivityImage(activityData, days) {
     const rowCount = activityData.length;
     const HEIGHT   = ACT_ACCENT_H + ACT_HEADER_H + Math.max(rowCount, 1) * ACT_ROW_H + ACT_FOOTER_H;
 
-    const canvas = createCanvas(ACT_W, HEIGHT);
-    const ctx    = canvas.getContext('2d');
+    // Whole card is one frosted-glass panel over the colour mesh.
+    const canvas = renderAsGlassCard(ACT_W, HEIGHT, (ctx, fullW, fullH) => {
+        drawGlassPanel(ctx, 0, 0, ACT_W, HEIGHT, GLASS_RADIUS, fullW, fullH);
 
-    ctx.fillStyle = COLOR.bg;
-    ctx.fillRect(0, 0, ACT_W, HEIGHT);
+        // ── Header ──────────────────────────────────────────────────────────
+        ctx.fillStyle = 'rgba(255,255,255,0.045)';
+        ctx.fillRect(0, 0, ACT_W, ACT_ACCENT_H + ACT_HEADER_H);
 
-    // ── Header gradient + accent bar ──────────────────────────────────────────
-    const hdrGrad = ctx.createLinearGradient(0, 0, 0, ACT_ACCENT_H + ACT_HEADER_H);
-    hdrGrad.addColorStop(0, COLOR.headerBg);
-    hdrGrad.addColorStop(1, '#222222');
-    ctx.fillStyle = hdrGrad;
-    ctx.fillRect(0, 0, ACT_W, ACT_ACCENT_H + ACT_HEADER_H);
+        ctx.fillStyle = COLOR.accent;
+        ctx.fillRect(0, 0, ACT_W, ACT_ACCENT_H);
 
-    ctx.fillStyle = COLOR.accent;
-    ctx.fillRect(0, 0, ACT_W, ACT_ACCENT_H);
-
-    // Title + subtitle
-    ctx.fillStyle    = COLOR.text;
-    ctx.font         = FONT.title;
-    ctx.textAlign    = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText('FACEIT ACTIVITY', ACT_PAD, ACT_ACCENT_H + 52);
-
-    ctx.fillStyle = COLOR.subtext;
-    ctx.font      = FONT.subtitle;
-    ctx.fillText(`Last ${days} days · CS2`, ACT_PAD, ACT_ACCENT_H + 86);
-
-    // Column labels
-    const colLabelY = ACT_ACCENT_H + ACT_HEADER_H - 14;
-    ctx.font = FONT.colLabel;
-    ACT_COLUMNS.forEach((col, i) => {
-        ctx.fillStyle = COLOR.subtext;
-        if (i === 0) {
-            ctx.textAlign = 'left';
-            ctx.fillText(col.label, ACT_PAD, colLabelY);
-        } else {
-            ctx.textAlign = 'right';
-            ctx.fillText(col.label, ACT_COL_X[i] + col.w - CELL_PAD, colLabelY);
-        }
-    });
-
-    ctx.fillStyle = COLOR.separator;
-    ctx.fillRect(0, ACT_ACCENT_H + ACT_HEADER_H - 1, ACT_W, 1);
-
-    // ── Empty state ───────────────────────────────────────────────────────────
-    if (rowCount === 0) {
-        ctx.fillStyle    = COLOR.subtext;
-        ctx.font         = `22px ${FONT_FAMILY}`;
-        ctx.textAlign    = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('No data', ACT_W / 2, ACT_ACCENT_H + ACT_HEADER_H + ACT_ROW_H / 2);
-    }
-
-    // ── Rows ──────────────────────────────────────────────────────────────────
-    activityData.forEach((player, i) => {
-        const rowY  = ACT_ACCENT_H + ACT_HEADER_H + i * ACT_ROW_H;
-        const midY  = rowY + ACT_ROW_H / 2;
-        const textY = midY + 7;
-
-        ctx.fillStyle = i % 2 === 0 ? COLOR.bg : COLOR.rowAlt;
-        ctx.fillRect(0, rowY, ACT_W, ACT_ROW_H);
-
-        ctx.fillStyle = COLOR.separator;
-        ctx.fillRect(0, rowY + ACT_ROW_H - 1, ACT_W, 1);
-
-        // Avatar placeholder
-        drawAvatarPlaceholder(ctx, player.nickname[0], ACT_AVATAR_CX, midY, ACT_AVATAR_R);
-
-        // Nickname
+        // Title + subtitle
         ctx.fillStyle    = COLOR.text;
-        ctx.font         = `bold 20px ${FONT_FAMILY}`;
+        ctx.font         = FONT.title;
         ctx.textAlign    = 'left';
         ctx.textBaseline = 'alphabetic';
-        ctx.fillText(truncateText(ctx, player.nickname, ACT_NAME_MAX_W), ACT_NAME_X, textY);
+        ctx.fillText('FACEIT ACTIVITY', ACT_PAD, ACT_ACCENT_H + 52);
 
-        ctx.font = `20px ${FONT_FAMILY}`;
+        ctx.fillStyle = COLOR.subtext;
+        ctx.font      = FONT.subtitle;
+        ctx.fillText(`Last ${days} days · CS2`, ACT_PAD, ACT_ACCENT_H + 86);
 
-        // Matches
-        drawActCell(ctx, String(player.matchCount), 1, textY);
+        // Column labels
+        const colLabelY = ACT_ACCENT_H + ACT_HEADER_H - 14;
+        ctx.font = FONT.colLabel;
+        ACT_COLUMNS.forEach((col, i) => {
+            ctx.fillStyle = COLOR.subtext;
+            if (i === 0) {
+                ctx.textAlign = 'left';
+                ctx.fillText(col.label, ACT_PAD, colLabelY);
+            } else {
+                ctx.textAlign = 'right';
+                ctx.fillText(col.label, ACT_COL_X[i] + col.w - CELL_PAD, colLabelY);
+            }
+        });
 
-        // Wins (green)
-        const winsColor = player.wins > 0 ? COLOR.positive : COLOR.subtext;
-        drawActCell(ctx, String(player.wins), 2, textY, winsColor);
+        ctx.fillStyle = COLOR.separator;
+        ctx.fillRect(0, ACT_ACCENT_H + ACT_HEADER_H - 1, ACT_W, 1);
 
-        // Win%
-        const winRateColor = player.winRate >= 50 ? COLOR.positive : COLOR.negative;
-        drawActCell(ctx, `${player.winRate}%`, 3, textY, winRateColor);
+        // ── Empty state ───────────────────────────────────────────────────────
+        if (rowCount === 0) {
+            ctx.fillStyle    = COLOR.subtext;
+            ctx.font         = `22px ${FONT_FAMILY}`;
+            ctx.textAlign    = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('No data', ACT_W / 2, ACT_ACCENT_H + ACT_HEADER_H + ACT_ROW_H / 2);
+        }
 
-        // Time
-        const timeText = player.totalDurationSec > 0 ? formatDuration(player.totalDurationSec) : '—';
-        drawActCell(ctx, timeText, 4, textY, COLOR.subtext);
+        // ── Rows ────────────────────────────────────────────────────────────
+        activityData.forEach((player, i) => {
+            const rowY    = ACT_ACCENT_H + ACT_HEADER_H + i * ACT_ROW_H;
+            const rowMidY = rowY + ACT_ROW_H / 2;
+            const textY   = rowMidY + 7;
+
+            ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0)' : COLOR.rowAlt;
+            ctx.fillRect(0, rowY, ACT_W, ACT_ROW_H);
+
+            ctx.fillStyle = COLOR.separator;
+            ctx.fillRect(0, rowY + ACT_ROW_H - 1, ACT_W, 1);
+
+            // Avatar placeholder
+            drawAvatarPlaceholder(ctx, player.nickname[0], ACT_AVATAR_CX, rowMidY, ACT_AVATAR_R);
+
+            // Nickname
+            ctx.fillStyle    = COLOR.text;
+            ctx.font         = `bold 20px ${FONT_FAMILY}`;
+            ctx.textAlign    = 'left';
+            ctx.textBaseline = 'alphabetic';
+            ctx.fillText(truncateText(ctx, player.nickname, ACT_NAME_MAX_W), ACT_NAME_X, textY);
+
+            ctx.font = `20px ${FONT_FAMILY}`;
+
+            // Matches
+            drawActCell(ctx, String(player.matchCount), 1, textY);
+
+            // Wins
+            const winsColor = player.wins > 0 ? COLOR.positive : COLOR.subtext;
+            drawActCell(ctx, String(player.wins), 2, textY, winsColor);
+
+            // Win% rendered as a translucent glass chip.
+            ctx.font = `bold 16px ${FONT_FAMILY}`;
+            drawGlassChip(ctx, `${player.winRate}%`, ACT_COL_X[3] + ACT_COLUMNS[3].w - CELL_PAD, rowMidY, player.winRate >= 50, 'right');
+            ctx.font = `20px ${FONT_FAMILY}`;
+
+            // Time
+            const timeText = player.totalDurationSec > 0 ? formatDuration(player.totalDurationSec) : '—';
+            drawActCell(ctx, timeText, 4, textY, COLOR.subtext);
+        });
+
+        // ── Footer ────────────────────────────────────────────────────────────
+        const footerY = HEIGHT - ACT_FOOTER_H;
+        ctx.fillStyle = 'rgba(255,255,255,0.045)';
+        ctx.fillRect(0, footerY, ACT_W, ACT_FOOTER_H);
+        ctx.fillStyle    = COLOR.subtext;
+        ctx.font         = `18px ${FONT_FAMILY}`;
+        ctx.textAlign    = 'right';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText('FACEIT Stats Bot', ACT_W - ACT_PAD, footerY + ACT_FOOTER_H / 2 + 6);
     });
-
-    // ── Footer ────────────────────────────────────────────────────────────────
-    const footerY = HEIGHT - ACT_FOOTER_H;
-    ctx.fillStyle = COLOR.headerBg;
-    ctx.fillRect(0, footerY, ACT_W, ACT_FOOTER_H);
-    ctx.fillStyle    = COLOR.subtext;
-    ctx.font         = `18px ${FONT_FAMILY}`;
-    ctx.textAlign    = 'right';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText('FACEIT Stats Bot', ACT_W - ACT_PAD, footerY + ACT_FOOTER_H / 2 + 6);
 
     return canvas.toBuffer('image/png');
 }
