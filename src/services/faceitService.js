@@ -450,11 +450,12 @@ async function getLeaderboardStats(apiKey, players, limit = 10) {
     const leaderboard = results.filter(stats => stats !== null);
 
     // Hybrid sort:
-    // 1. Players WITH rating come first, sorted by avg_faceit_rating DESC.
+    // 1. Players WITH rating come first, sorted by avg_faceit_rating DESC, then ADR DESC as tiebreaker.
     // 2. Players WITHOUT rating (API miss / not yet computed) go to the end, sorted by ADR DESC.
     const withRating    = leaderboard
         .filter(p => p.avg_faceit_rating != null)
-        .sort((a, b) => b.avg_faceit_rating - a.avg_faceit_rating);
+        .sort((a, b) => b.avg_faceit_rating - a.avg_faceit_rating
+            || b.average_damage_per_round - a.average_damage_per_round);
     const withoutRating = leaderboard
         .filter(p => p.avg_faceit_rating == null)
         .sort((a, b) => b.average_damage_per_round - a.average_damage_per_round);
