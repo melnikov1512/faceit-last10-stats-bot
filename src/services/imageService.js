@@ -1213,6 +1213,7 @@ function drawActCell(ctx, text, colIndex, y, color = COLOR.text) {
  *   winRate: number,
  *   totalDurationSec: number,
  *   avgDurationSec: number,
+ *   avatar_url: string|null,
  * }>} activityData  Sorted by matchCount descending
  * @param {number} days  Period in days
  * @returns {Promise<Buffer>}
@@ -1220,6 +1221,8 @@ function drawActCell(ctx, text, colIndex, y, color = COLOR.text) {
 async function generateActivityImage(activityData, days) {
     const rowCount = activityData.length;
     const HEIGHT   = ACT_ACCENT_H + ACT_HEADER_H + Math.max(rowCount, 1) * ACT_ROW_H + ACT_FOOTER_H;
+
+    const avatars = await Promise.all(activityData.map(({ avatar_url }) => _loadAvatar(avatar_url)));
 
     // Whole card is one frosted-glass panel over the colour mesh.
     const canvas = renderAsGlassCard(ACT_W, HEIGHT, (ctx, fullW, fullH) => {
@@ -1281,8 +1284,13 @@ async function generateActivityImage(activityData, days) {
             ctx.fillStyle = COLOR.separator;
             ctx.fillRect(0, rowY + ACT_ROW_H - 1, ACT_W, 1);
 
-            // Avatar placeholder
-            drawAvatarPlaceholder(ctx, player.nickname[0], ACT_AVATAR_CX, rowMidY, ACT_AVATAR_R);
+            // Avatar — real image when available, letter placeholder otherwise
+            const avatar = avatars[i];
+            if (avatar) {
+                drawCircularAvatar(ctx, avatar, ACT_AVATAR_CX, rowMidY, ACT_AVATAR_R);
+            } else {
+                drawAvatarPlaceholder(ctx, player.nickname[0], ACT_AVATAR_CX, rowMidY, ACT_AVATAR_R);
+            }
 
             // Nickname
             ctx.fillStyle    = COLOR.text;

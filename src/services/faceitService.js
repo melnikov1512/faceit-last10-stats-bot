@@ -483,6 +483,7 @@ async function getPlayerHistoryPage(apiClient, playerId, fromTs, toTs, limit, of
  *   winRate: number,
  *   totalDurationSec: number,
  *   avgDurationSec: number,
+ *   avatar_url: string|null,
  * }>>} Sorted by matchCount descending
  */
 async function getActivityStats(apiKey, players, days) {
@@ -492,12 +493,15 @@ async function getActivityStats(apiKey, players, days) {
     const fromTs = Math.floor((Date.now() - days * 86400 * 1000) / 1000);
 
     const results = await processInChunks(players, 10, async ({ id: playerId, nickname }) => {
-        // Fetch two pages in parallel (page2 returns [] if fewer than 100 matches exist)
-        const [page1, page2] = await Promise.all([
+        // Fetch two history pages and player info in parallel
+        // (page2 returns [] if fewer than 100 matches exist)
+        const [page1, page2, playerInfo] = await Promise.all([
             getPlayerHistoryPage(apiClient, playerId, fromTs, toTs, 100, 0),
             getPlayerHistoryPage(apiClient, playerId, fromTs, toTs, 100, 100),
+            getPlayerInfoById(apiClient, playerId),
         ]);
         const items = [...page1, ...page2];
+        const avatar_url = playerInfo?.avatar ?? null;
 
         let wins             = 0;
         let losses           = 0;
@@ -533,7 +537,7 @@ async function getActivityStats(apiKey, players, days) {
         const winRate        = matchCount > 0 ? Math.round((wins / matchCount) * 100) : 0;
         const avgDurationSec = matchCount > 0 ? Math.round(totalDurationSec / matchCount) : 0;
 
-        return { nickname, matchCount, wins, losses, winRate, totalDurationSec, avgDurationSec };
+        return { nickname, matchCount, wins, losses, winRate, totalDurationSec, avgDurationSec, avatar_url };
     });
 
     // Sort by matchCount descending
