@@ -25,6 +25,8 @@ const COLOR = {
                                                // legibility over a busy blurred backdrop
     positive:  '#6EE787',                     // brighter green — must win contrast against colour mesh
     negative:  '#FF6B6B',                     // brighter red — same reason
+    neutral:   '#B8B4C8',                     // grey "average" Rating grade — cool-toned, distinct from subtext
+    gold:      '#FFC94D',                     // gold "elite" Rating grade — brighter than SKILL_COLOR's #FFC400
     separator: 'rgba(255,255,255,0.18)',      // glass hairline border colour
     avatarBg:  'rgba(255,255,255,0.12)',
     trackedBg: 'rgba(255,122,51,0.14)',
@@ -41,6 +43,40 @@ const COLOR = {
     positiveTint:   'rgba(110,231,135,0.14)',
     negativeBorder: 'rgba(255,107,107,0.55)',
     negativeTint:   'rgba(255,107,107,0.14)',
+    neutralBorder:  'rgba(184,180,200,0.55)',
+    neutralTint:    'rgba(184,180,200,0.14)',
+    goldBorder:     'rgba(255,201,77,0.55)',
+    goldTint:       'rgba(255,201,77,0.14)',
+};
+
+/**
+ * Maps an estimated Rating value to one of FACEIT's 4 rating grades so it
+ * can be rendered with a distinct chip colour, matching the tiering used on
+ * faceit.com's own match-history/scoreboard pages (adapted to our glass
+ * palette rather than copied 1:1):
+ *   red    rating < 0.9
+ *   grey   0.9 <= rating <= 1.3   (average)
+ *   green  1.3 < rating < 1.8
+ *   gold   rating >= 1.8          (elite)
+ * @param {number|null|undefined} rating
+ * @returns {'red'|'grey'|'green'|'gold'|null}
+ */
+function getRatingGrade(rating) {
+    if (rating == null || !Number.isFinite(rating)) return null;
+    if (rating < 0.9) return 'red';
+    if (rating <= 1.3) return 'grey';
+    if (rating < 1.8) return 'green';
+    return 'gold';
+}
+
+// Colour set per glass-chip variant. Boolean variants (used by K/D, ELO
+// delta, Win%, WIN/LOSE) map to 'green'/'red'; Rating chips use the 4-grade
+// string variant from getRatingGrade() instead.
+const CHIP_VARIANTS = {
+    green: { tint: 'positiveTint', border: 'positiveBorder', text: 'positive' },
+    red:   { tint: 'negativeTint', border: 'negativeBorder', text: 'negative' },
+    grey:  { tint: 'neutralTint',  border: 'neutralBorder',  text: 'neutral'  },
+    gold:  { tint: 'goldTint',     border: 'goldBorder',     text: 'gold'     },
 };
 
 // Blur radius used for every frosted panel — tuned so the mesh
@@ -123,7 +159,7 @@ function drawGlassPanel(ctx, x, y, w, h, radius, meshW, meshH, tint = COLOR.bg) 
  * text, instead of a solid tonal fill (keeps the "glass" language: colour
  * lives at the edges/text, panels stay see-through).
  */
-function drawGlassChip(ctx, text, x, yCenter, isPositive, align = 'right') {
+function drawGlassChip(ctx, text, x, yCenter, variant, align = 'right') {
     const padX  = 10;
     const h     = 26;
     const textW = ctx.measureText(text).width;
@@ -134,9 +170,14 @@ function drawGlassChip(ctx, text, x, yCenter, isPositive, align = 'right') {
     else                          chipX = x;
     const chipY = yCenter - h / 2;
 
-    const tint   = isPositive ? COLOR.positiveTint   : COLOR.negativeTint;
-    const border = isPositive ? COLOR.positiveBorder : COLOR.negativeBorder;
-    const textColor = isPositive ? COLOR.positive : COLOR.negative;
+    // `variant` is either a boolean (legacy green/red convention used by
+    // K/D, ELO delta, Win% and WIN/LOSE chips) or a grade string ('red'|
+    // 'grey'|'green'|'gold') as returned by getRatingGrade() for Rating chips.
+    const key = typeof variant === 'boolean' ? (variant ? 'green' : 'red') : variant;
+    const colors = CHIP_VARIANTS[key] || CHIP_VARIANTS.grey;
+    const tint      = COLOR[colors.tint];
+    const border    = COLOR[colors.border];
+    const textColor = COLOR[colors.text];
 
     roundedPath(ctx, chipX, chipY, w, h, h / 2); // fully rounded — chips stay pill-shaped in glass
     ctx.fillStyle = tint;
@@ -385,7 +426,7 @@ function drawRow(ctx, player, rowIndex, avatar, matchesCount) {
         // Rating/K-D/ELO-delta rendered as translucent glass chips
         // (coloured border + text, tinted fill) instead of plain coloured text.
         if (rating != null) {
-            drawGlassChip(ctx, rText, COL_X[1] + COLUMNS[1].w - CELL_PAD, rowMidY, rating >= 1.0, 'right');
+            drawGlassChip(ctx, rText, COL_X[1] + COLUMNS[1].w - CELL_PAD, rowMidY, getRatingGrade(rating), 'right');
         } else {
             drawStatCell(ctx, rText, 1, textY, COLOR.subtext);
         }
@@ -1120,8 +1161,8 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
     const statCols = [
         { label: 'KILLS',   value: String(kills),   chip: false },
         { label: 'ASSISTS', value: String(assists), chip: false },
-        { label: 'RATING',  value: ratingValue != null ? `~${ratingValue.toFixed(2)}` : '—', chip: ratingValue != null, positive: ratingValue != null && ratingValue >= 1.0 },
-        { label: 'K/D',     value: kdValue.toFixed(2), chip: true, positive: kdValue >= 1.0 },
+        { label: 'RATING',  value: ratingValue != null ? `~${ratingValue.toFixed(2)}` : '—', chip: ratingValue != null, variant: getRatingGrade(ratingValue) },
+        { label: 'K/D',     value: kdValue.toFixed(2), chip: true, variant: kdValue >= 1.0 },
         { label: 'ADR',     value: parseFloat(adr).toFixed(1), chip: false },
         { label: 'HS%',     value: `${hsPercent}%`, chip: false },
     ];
@@ -1138,7 +1179,7 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
         // K/D rendered as a glass chip; the rest stay plain text.
         if (col.chip) {
             ctx.font = `bold 18px ${FONT_FAMILY}`;
-            drawGlassChip(ctx, col.value, colCx, statsY + 48, col.positive, 'center');
+            drawGlassChip(ctx, col.value, colCx, statsY + 48, col.variant, 'center');
         } else {
             ctx.fillStyle = COLOR.text;
             ctx.font      = `bold 20px ${FONT_FAMILY}`;
@@ -1326,7 +1367,7 @@ function drawSummaryRow(ctx, player, rowIndex, avatar) {
     const ratingRightX = SUMMARY_COL_X[2] + SUMMARY_COLUMNS[2].w - 4;
     ctx.font = `bold 15px ${FONT_FAMILY}`;
     if (ratingValue != null) {
-        drawGlassChip(ctx, rText, ratingRightX, midY, ratingValue >= 1.0, 'right');
+        drawGlassChip(ctx, rText, ratingRightX, midY, getRatingGrade(ratingValue), 'right');
     } else {
         ctx.fillStyle    = COLOR.subtext;
         ctx.textAlign    = 'right';
