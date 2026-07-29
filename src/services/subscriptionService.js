@@ -1,5 +1,5 @@
 const storageService = require('./storageService');
-const { sendPhoto, editMessageMedia } = require('./telegramService');
+const { sendPhoto } = require('./telegramService');
 const { getMatchDetails, getMatchStats, extractPlayerMatchStats, getPlayerDetails, getLastMatchEloChange } = require('./faceitService');
 const { generateMatchImage, generateMatchResultsSummaryImage } = require('./imageService');
 const { escapeHtml } = require('../utils');
@@ -154,8 +154,10 @@ function buildWebAppButton(chatId, matchId) {
 
 /**
  * Handle an incoming FACEIT match_status_finished webhook event.
- * For each subscribed chat, edits the original start notification with the finish results.
- * Falls back to sending a new message if the original message_id is not available.
+ * For each subscribed chat, sends the finish results as a new message that
+ * replies to the original start notification (when its message_id is known).
+ * Falls back to sending a plain (non-reply) message if the original message_id
+ * is not available.
  * @param {object} payload  The event payload from FACEIT
  */
 async function handleMatchFinishedEvent(payload) {
@@ -278,12 +280,9 @@ async function handleMatchFinishedEvent(payload) {
         const verb = players.length === 1 ? 'завершил матч' : 'завершили матч';
         const caption = boldNames.join(' и ') + ' ' + verb;
 
-        // Prefer editing the original start notification; fall back to a new message
-        if (startMessageId) {
-            await editMessageMedia(chatId, startMessageId, imageBuffer, caption, replyMarkup);
-        } else {
-            await sendPhoto(chatId, imageBuffer, caption, replyMarkup);
-        }
+        // Send a reply to the original start notification when its message_id is
+        // known; otherwise fall back to a plain (non-reply) message.
+        await sendPhoto(chatId, imageBuffer, caption, replyMarkup, startMessageId || null);
         console.log(`[FACEIT WEBHOOK] Finish: sent aggregated notification for match ${matchId} to chat ${chatId} (players: ${players.map(p => p.nickname).join(', ')})`);
     }));
 }
