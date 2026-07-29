@@ -7,7 +7,8 @@
 const mockCreate = jest.fn().mockResolvedValue();
 const mockGet    = jest.fn();
 const mockSet    = jest.fn().mockResolvedValue();
-const mockDoc    = jest.fn(() => ({ create: mockCreate, get: mockGet, set: mockSet }));
+const mockDelete = jest.fn().mockResolvedValue();
+const mockDoc    = jest.fn(() => ({ create: mockCreate, get: mockGet, set: mockSet, delete: mockDelete }));
 const mockWhere  = jest.fn();
 
 // Minimal Timestamp stub that mirrors the real API surface used by storageService.
@@ -41,6 +42,7 @@ const {
     getRecentMatchIdsForPlayers,
     storeActiveMatch,
     getActiveMatchMessageId,
+    deleteChatData,
 } = require('../../src/services/storageService');
 
 // TTL constant exported indirectly — we derive the expected value from the known 7-day period
@@ -276,5 +278,84 @@ describe('getActiveMatchMessageId', () => {
 
         const result = await getActiveMatchMessageId('chat-1', 'match-y');
         expect(result).toBeNull();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// deleteChatData
+// ---------------------------------------------------------------------------
+
+describe('deleteChatData', () => {
+    it('deletes the chats/{chatId} doc', async () => {
+        mockWhere.mockReturnValue({ get: jest.fn().mockResolvedValue({ docs: [] }) });
+
+        await deleteChatData('chat-1');
+
+        expect(mockDoc).toHaveBeenCalledWith('chat-1');
+        expect(mockDelete).toHaveBeenCalled();
+    });
+
+    it('removes chatId from all matching player_subscriptions docs via arrayRemove', async () => {
+        const update1 = jest.fn().mockResolvedValue();
+        const update2 = jest.fn().mockResolvedValue();
+        const subsGet = jest.fn().mockResolvedValue({
+            docs: [
+                { ref: { update: update1 } },
+                { ref: { update: update2 } },
+            ],
+        });
+        const matchesGet = jest.fn().mockResolvedValue({ docs: [] });
+
+        mockWhere
+            .mockReturnValueOnce({ get: subsGet })
+            .mockReturnValueOnce({ get: matchesGet });
+
+        await deleteChatData('chat-1');
+
+        expect(mockWhere).toHaveBeenCalledWith('subscribedChats', 'array-contains', 'chat-1');
+        expect(update1).toHaveBeenCalledWith({ subscribedChats: MockFirestore.FieldValue.arrayRemove('chat-1') });
+        expect(update2).toHaveBeenCalledWith({ subscribedChats: MockFirestore.FieldValue.arrayRemove('chat-1') });
+    });
+
+    it('deletes all matching active_matches docs', async () => {
+        const delete1 = jest.fn().mockResolvedValue();
+        const delete2 = jest.fn().mockResolvedValue();
+        const subsGet = jest.fn().mockResolvedValue({ docs: [] });
+        const matchesGet = jest.fn().mockResolvedValue({
+            docs: [
+                { ref: { delete: delete1 } },
+                { ref: { delete: delete2 } },
+            ],
+        });
+
+        mockWhere
+            .mockReturnValueOnce({ get: subsGet })
+            .mockReturnValueOnce({ get: matchesGet });
+
+        await deleteChatData('chat-1');
+
+        expect(mockWhere).toHaveBeenCalledWith('chatId', '==', 'chat-1');
+        expect(delete1).toHaveBeenCalled();
+        expect(delete2).toHaveBeenCalled();
+    });
+
+    it('does not touch sent_match_notifications', async () => {
+        mockWhere.mockReturnValue({ get: jest.fn().mockResolvedValue({ docs: [] }) });
+
+        await deleteChatData('chat-1');
+
+        // Only two `where` queries are expected: player_subscriptions + active_matches.
+        expect(mockWhere).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not throw if one sub-step Firestore call rejects (resilience)', async () => {
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        mockDelete.mockRejectedValueOnce(new Error('chats doc delete failed'));
+        mockWhere.mockReturnValue({ get: jest.fn().mockResolvedValue({ docs: [] }) });
+
+        await expect(deleteChatData('chat-1')).resolves.toBeUndefined();
+
+        expect(consoleErrorSpy).toHaveBeenCalled();
+        consoleErrorSpy.mockRestore();
     });
 });

@@ -63,7 +63,10 @@ async function sendMessage(chatId, text, replyMarkup = null, options = {}) {
 
         await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, payload);
     } catch (error) {
-        console.error(`Failed to send Telegram message to chat ${chatId}:`, error.message);
+        const details = error.response
+            ? `${error.response.status} - ${JSON.stringify(error.response.data)}`
+            : error.message;
+        console.error(`Failed to send Telegram message to chat ${chatId}: ${details}`);
         throw error;
     }
 }
@@ -98,7 +101,10 @@ async function sendPhoto(chatId, imageBuffer, caption = null, replyMarkup = null
         // Return the Telegram Message object (contains message_id, etc.)
         return response.data?.result ?? null;
     } catch (error) {
-        console.error(`Failed to send Telegram photo to chat ${chatId}:`, error.message);
+        const details = error.response
+            ? `${error.response.status} - ${JSON.stringify(error.response.data)}`
+            : error.message;
+        console.error(`Failed to send Telegram photo to chat ${chatId}: ${details}`);
         throw error;
     }
 }

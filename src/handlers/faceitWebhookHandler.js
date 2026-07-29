@@ -35,7 +35,11 @@ async function handleFaceitWebhook(req, res) {
             await handleMatchFinishedEvent(body.payload);
         }
     } catch (error) {
-        console.error('[FACEIT WEBHOOK] Error handling event:', error);
+        // Log a concise, actionable message instead of dumping the whole Axios/Node
+        // error object (which contains huge/circular internal fields such as
+        // `_header`, `path`, `requestOnFinish`, etc.) into Cloud Logging.
+        const telegramErrorData = error.response?.data ? JSON.stringify(error.response.data) : '';
+        console.error('[FACEIT WEBHOOK] Error handling event:', error.message, telegramErrorData, error.stack);
     }
 }
 

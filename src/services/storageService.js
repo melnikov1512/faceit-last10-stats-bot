@@ -325,6 +325,49 @@ async function removeActiveMatch(chatId, matchId) {
     await activeMatchesCollection.doc(docId).delete();
 }
 
+// ── Chat cleanup ────────────────────────────────────────────────────────────
+
+/**
+ * Delete all data related to a chat (called when the bot has been kicked from
+ * the chat or blocked by the user — Telegram sendPhoto returns HTTP 403 in
+ * that case). Removes the chats/{chatId} doc, removes the chatId from every
+ * player_subscriptions doc's subscribedChats array, and deletes all
+ * active_matches docs for the chat.
+ * Note: sent_match_notifications is intentionally left untouched (it already
+ * has a 7-day TTL).
+ * Each step is isolated so that a failure in one does not prevent the others
+ * from running.
+ * @param {string} chatId
+ */
+async function deleteChatData(chatId) {
+    const chatIdStr = chatId.toString();
+
+    const results = await Promise.allSettled([
+        chatCollection.doc(chatIdStr).delete(),
+        (async () => {
+            const snapshot = await playerSubscriptionsCollection
+                .where('subscribedChats', 'array-contains', chatIdStr)
+                .get();
+            await Promise.all(snapshot.docs.map(doc =>
+                doc.ref.update({ subscribedChats: Firestore.FieldValue.arrayRemove(chatIdStr) })
+            ));
+        })(),
+        (async () => {
+            const snapshot = await activeMatchesCollection
+                .where('chatId', '==', chatIdStr)
+                .get();
+            await Promise.all(snapshot.docs.map(doc => doc.ref.delete()));
+        })(),
+    ]);
+
+    results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+            const step = ['chats doc', 'player_subscriptions cleanup', 'active_matches cleanup'][index];
+            console.error(`Failed to delete chat data (${step}) for chat ${chatIdStr}:`, result.reason);
+        }
+    });
+}
+
 module.exports = {
     addPlayer,
     removePlayer,
@@ -345,4 +388,6 @@ module.exports = {
     getActiveMatchIds,
     getActiveMatchMessageId,
     removeActiveMatch,
+    // Chat cleanup
+    deleteChatData,
 };

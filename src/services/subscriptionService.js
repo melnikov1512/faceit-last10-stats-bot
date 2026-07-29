@@ -4,6 +4,25 @@ const { getMatchDetails, getMatchStats, extractPlayerMatchStats, getPlayerDetail
 const { generateMatchImage, generateMatchResultsSummaryImage } = require('./imageService');
 const { escapeHtml } = require('../utils');
 const config = require('../config');
+const { invalidate } = require('./statsCache');
+
+/**
+ * Handle a Telegram sendPhoto failure. If the bot was kicked from the chat or
+ * blocked by the user (HTTP 403), clean up all Firestore data for that chat
+ * and invalidate its stats cache — this is now a handled, expected condition.
+ * Any other error is rethrown unchanged.
+ * @param {string} chatId
+ * @param {Error} error
+ */
+async function handleSendPhotoError(chatId, error) {
+    if (error.response?.status !== 403) {
+        throw error;
+    }
+    await storageService.deleteChatData(chatId);
+    invalidate(`${chatId}:`);
+    invalidate(`activity:${chatId}:`);
+    console.log(`[FACEIT WEBHOOK] Bot was kicked/blocked in chat ${chatId} — deleted all related data.`);
+}
 
 /**
  * Handle an incoming FACEIT match_object_created webhook event.
@@ -129,7 +148,13 @@ async function handleMatchEvent(payload) {
         }
         const replyMarkup = inlineButtons.length ? { inline_keyboard: [inlineButtons] } : null;
 
-        const sentMessage = await sendPhoto(chatId, imageBuffer, caption, replyMarkup);
+        let sentMessage;
+        try {
+            sentMessage = await sendPhoto(chatId, imageBuffer, caption, replyMarkup);
+        } catch (error) {
+            await handleSendPhotoError(chatId, error);
+            return;
+        }
         const telegramMessageId = sentMessage?.message_id ?? null;
         await storageService.storeActiveMatch(chatId, matchId, telegramMessageId);
         console.log(`[FACEIT WEBHOOK] Sent match ${matchId} image notification to chat ${chatId} for players: ${nicknames.join(', ')}`);
@@ -282,7 +307,12 @@ async function handleMatchFinishedEvent(payload) {
 
         // Send a reply to the original start notification when its message_id is
         // known; otherwise fall back to a plain (non-reply) message.
-        await sendPhoto(chatId, imageBuffer, caption, replyMarkup, startMessageId || null);
+        try {
+            await sendPhoto(chatId, imageBuffer, caption, replyMarkup, startMessageId || null);
+        } catch (error) {
+            await handleSendPhotoError(chatId, error);
+            return;
+        }
         console.log(`[FACEIT WEBHOOK] Finish: sent aggregated notification for match ${matchId} to chat ${chatId} (players: ${players.map(p => p.nickname).join(', ')})`);
     }));
 }

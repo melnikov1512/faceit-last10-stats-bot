@@ -53,4 +53,25 @@ describe('sendPhoto', () => {
         const replyParamsCalls = mockAppend.mock.calls.filter(([field]) => field === 'reply_parameters');
         expect(replyParamsCalls).toHaveLength(0);
     });
+
+    it('logs the chat id, Telegram status and error body, and rethrows on failure', async () => {
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        const telegramError = new Error('Request failed with status code 403');
+        telegramError.response = {
+            status: 403,
+            data: { ok: false, error_code: 403, description: 'bot was kicked from the group chat' },
+        };
+        axios.post.mockRejectedValueOnce(telegramError);
+
+        await expect(sendPhoto('chat-1', Buffer.from('img'), 'caption')).rejects.toBe(telegramError);
+
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+            expect.stringContaining('chat-1')
+        );
+        const loggedMessage = consoleErrorSpy.mock.calls[0][0];
+        expect(loggedMessage).toContain('403');
+        expect(loggedMessage).toContain('bot was kicked from the group chat');
+
+        consoleErrorSpy.mockRestore();
+    });
 });

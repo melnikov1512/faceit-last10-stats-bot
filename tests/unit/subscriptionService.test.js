@@ -11,6 +11,11 @@ jest.mock('./../../src/services/storageService', () => ({
     markFinishNotificationSentForChat: jest.fn(),
     storeActiveMatch: jest.fn(),
     markNotificationSent: jest.fn(),
+    deleteChatData: jest.fn(),
+}));
+
+jest.mock('./../../src/services/statsCache', () => ({
+    invalidate: jest.fn(),
 }));
 
 jest.mock('./../../src/services/telegramService', () => ({
@@ -39,7 +44,8 @@ jest.mock('./../../src/config', () => ({
 const storageService = require('../../src/services/storageService');
 const { sendPhoto } = require('../../src/services/telegramService');
 const { getMatchStats } = require('../../src/services/faceitService');
-const { handleMatchFinishedEvent } = require('../../src/services/subscriptionService');
+const { invalidate } = require('../../src/services/statsCache');
+const { handleMatchEvent, handleMatchFinishedEvent } = require('../../src/services/subscriptionService');
 
 const CHAT_ID = 'chat-1';
 const MATCH_ID = 'match-1';
@@ -60,7 +66,55 @@ beforeEach(() => {
     storageService.getSubscribedChats.mockResolvedValue([CHAT_ID]);
     storageService.markFinishNotificationSentForChat.mockResolvedValue(true);
     storageService.removeActiveMatch.mockResolvedValue();
+    storageService.markNotificationSent.mockResolvedValue(true);
+    storageService.storeActiveMatch.mockResolvedValue();
+    storageService.deleteChatData.mockResolvedValue();
     getMatchStats.mockResolvedValue({ rounds: [] });
+});
+
+function build403Error() {
+    const error = new Error('Forbidden: bot was kicked from the group chat');
+    error.response = { status: 403 };
+    return error;
+}
+
+function build500Error() {
+    const error = new Error('Internal Server Error');
+    error.response = { status: 500 };
+    return error;
+}
+
+// ---------------------------------------------------------------------------
+// handleMatchEvent
+// ---------------------------------------------------------------------------
+
+describe('handleMatchEvent', () => {
+    it('deletes chat data, invalidates cache, and does not rethrow when sendPhoto rejects with 403', async () => {
+        sendPhoto.mockRejectedValueOnce(build403Error());
+
+        await expect(handleMatchEvent(buildPayload())).resolves.toBeUndefined();
+
+        expect(storageService.deleteChatData).toHaveBeenCalledWith(CHAT_ID);
+        expect(invalidate).toHaveBeenCalledWith(`${CHAT_ID}:`);
+        expect(invalidate).toHaveBeenCalledWith(`activity:${CHAT_ID}:`);
+    });
+
+    it('does not run trailing per-chat logic (storeActiveMatch with messageId) after a swallowed 403', async () => {
+        sendPhoto.mockRejectedValueOnce(build403Error());
+
+        await handleMatchEvent(buildPayload());
+
+        // storeActiveMatch is called once before sendPhoto (without messageId);
+        // it must NOT be called again after sendPhoto fails with 403.
+        expect(storageService.storeActiveMatch).toHaveBeenCalledTimes(1);
+    });
+
+    it('rethrows a non-403 error from sendPhoto (regression: unchanged behavior)', async () => {
+        sendPhoto.mockRejectedValueOnce(build500Error());
+
+        await expect(handleMatchEvent(buildPayload())).rejects.toMatchObject({ message: 'Internal Server Error' });
+        expect(storageService.deleteChatData).not.toHaveBeenCalled();
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -104,5 +158,38 @@ describe('handleMatchFinishedEvent', () => {
         await handleMatchFinishedEvent(buildPayload());
 
         expect(callOrder).toEqual(['getActiveMatchMessageId', 'removeActiveMatch']);
+    });
+
+    it('deletes chat data, invalidates cache, and does not rethrow when sendPhoto rejects with 403', async () => {
+        storageService.getActiveMatchMessageId.mockResolvedValue(555);
+        sendPhoto.mockRejectedValueOnce(build403Error());
+
+        await expect(handleMatchFinishedEvent(buildPayload())).resolves.toBeUndefined();
+
+        expect(storageService.deleteChatData).toHaveBeenCalledWith(CHAT_ID);
+        expect(invalidate).toHaveBeenCalledWith(`${CHAT_ID}:`);
+        expect(invalidate).toHaveBeenCalledWith(`activity:${CHAT_ID}:`);
+    });
+
+    it('does not run trailing per-chat logic (success log) after a swallowed 403', async () => {
+        storageService.getActiveMatchMessageId.mockResolvedValue(555);
+        sendPhoto.mockRejectedValueOnce(build403Error());
+        const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        await handleMatchFinishedEvent(buildPayload());
+
+        const successLogCalled = consoleLogSpy.mock.calls.some(
+            call => typeof call[0] === 'string' && call[0].includes('Finish: sent aggregated notification')
+        );
+        expect(successLogCalled).toBe(false);
+        consoleLogSpy.mockRestore();
+    });
+
+    it('rethrows a non-403 error from sendPhoto (regression: unchanged behavior)', async () => {
+        storageService.getActiveMatchMessageId.mockResolvedValue(555);
+        sendPhoto.mockRejectedValueOnce(build500Error());
+
+        await expect(handleMatchFinishedEvent(buildPayload())).rejects.toMatchObject({ message: 'Internal Server Error' });
+        expect(storageService.deleteChatData).not.toHaveBeenCalled();
     });
 });
