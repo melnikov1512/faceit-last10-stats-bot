@@ -1,6 +1,7 @@
 const storageService = require('../services/storageService');
 const { getMatchDetails, enrichMatchWithRosterElos, getMatchStats } = require('../services/faceitService');
 const { collectMatchIds, fetchActiveMatchDetails } = require('../services/matchService');
+const { estimateMatchRating } = require('../services/ratingEstimator');
 const { MATCH_URL_BASE } = require('../constants');
 const config = require('../config');
 
@@ -84,12 +85,19 @@ function processMatchStats(statsData, faction1Id, faction2Id) {
         let f1Score = null;
         let f2Score = null;
 
+        // First pass: read both teams' final scores so map round count
+        // (needed for the rating estimate) is known before accumulating players.
         for (const team of round.teams || []) {
             const factionKey = factionById[team.team_id] || null;
             const ts = team.team_stats || {};
             const score = parseInt(ts['Final Score'] ?? ts['final_score'] ?? 0, 10);
             if (factionKey === 'faction1') f1Score = score;
             else if (factionKey === 'faction2') f2Score = score;
+        }
+        const mapRounds = (f1Score || 0) + (f2Score || 0);
+
+        for (const team of round.teams || []) {
+            const factionKey = factionById[team.team_id] || null;
 
             for (const player of team.players || []) {
                 const pid = player.player_id;
@@ -98,16 +106,17 @@ function processMatchStats(statsData, faction1Id, faction2Id) {
                         nickname: player.nickname,
                         faction: factionKey,
                         kills: 0, deaths: 0, assists: 0, headshots: 0,
-                        adr_sum: 0, maps_played: 0,
+                        adr_sum: 0, maps_played: 0, rounds_sum: 0,
                     };
                 }
                 const ps = player.player_stats || {};
-                accumulator[pid].kills     += parseInt(ps['Kills']     || 0, 10);
-                accumulator[pid].deaths    += parseInt(ps['Deaths']    || 0, 10);
-                accumulator[pid].assists   += parseInt(ps['Assists']   || 0, 10);
-                accumulator[pid].headshots += parseInt(ps['Headshots'] || 0, 10);
-                accumulator[pid].adr_sum   += parseFloat(ps['ADR']    || 0);
+                accumulator[pid].kills      += parseInt(ps['Kills']     || 0, 10);
+                accumulator[pid].deaths     += parseInt(ps['Deaths']    || 0, 10);
+                accumulator[pid].assists    += parseInt(ps['Assists']   || 0, 10);
+                accumulator[pid].headshots  += parseInt(ps['Headshots'] || 0, 10);
+                accumulator[pid].adr_sum    += parseFloat(ps['ADR']    || 0);
                 accumulator[pid].maps_played++;
+                accumulator[pid].rounds_sum += mapRounds;
             }
         }
 
@@ -119,7 +128,11 @@ function processMatchStats(statsData, faction1Id, faction2Id) {
         const kd      = p.deaths > 0 ? (p.kills / p.deaths).toFixed(2) : p.kills.toFixed(2);
         const adr     = p.maps_played > 0 ? (p.adr_sum / p.maps_played).toFixed(1) : '0.0';
         const hs_pct  = p.kills > 0 ? Math.round((p.headshots / p.kills) * 100) : 0;
-        players[pid]  = { nickname: p.nickname, faction: p.faction, kills: p.kills, deaths: p.deaths, assists: p.assists, kd, adr, hs_pct };
+        const rating  = estimateMatchRating({
+            kills: p.kills, deaths: p.deaths, assists: p.assists,
+            rounds: p.rounds_sum, adr: parseFloat(adr),
+        });
+        players[pid]  = { nickname: p.nickname, faction: p.faction, kills: p.kills, deaths: p.deaths, assists: p.assists, kd, adr, hs_pct, rating };
     }
 
     return { maps, players };

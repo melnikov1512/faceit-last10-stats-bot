@@ -598,12 +598,29 @@
 
         .stats-table tr.tracked td:first-child { color: var(--orange); }
 
-        .stats-kd-good { color: var(--green); }
-        .stats-kd-bad  { color: var(--red); }
+        /* Pill-shaped chips for signed/graded values (Rating, K/D) — mirrors
+           the glass chip look used in the generated PNG cards (drawGlassChip
+           in imageService.js) instead of plain coloured text. */
+        .stats-chip {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-weight: 600;
+            line-height: 1.4;
+            white-space: nowrap;
+        }
 
-        .stats-rating-good { color: var(--green); }
-        .stats-rating-avg  { color: var(--text);  }
-        .stats-rating-bad  { color: var(--red);   }
+        .stats-chip-good {
+            color: var(--green);
+            background: var(--positive-tint);
+            border: 1px solid var(--positive-border);
+        }
+
+        .stats-chip-bad {
+            color: var(--red);
+            background: var(--negative-tint);
+            border: 1px solid var(--negative-border);
+        }
 
         
         .content-area { position: relative; }
@@ -972,7 +989,8 @@
 
             const rows = entries.sort(([, a], [, b]) => b.kills - a.kills);
 
-            const kdClass = (kd) => parseFloat(kd) >= 1.0 ? 'stats-kd-good' : 'stats-kd-bad';
+            const chip = (text, isPositive) =>
+                `<span class="stats-chip ${isPositive ? 'stats-chip-good' : 'stats-chip-bad'}">${text}</span>`;
 
             const trs = rows.map(([, p]) => {
                 const cls = p.isTracked ? ' class="tracked"' : '';
@@ -981,13 +999,17 @@
                       + `<div class="stats-avatar-ph" style="display:none">${avatarInitial(p.nickname)}</div>`
                     : `<div class="stats-avatar-ph">${avatarInitial(p.nickname)}</div>`;
 
+                const ratingHtml = p.rating != null ? chip(`~${p.rating.toFixed(2)}`, p.rating >= 1.0) : '—';
+                const kdHtml     = chip(p.kd, parseFloat(p.kd) >= 1.0);
+
                 return `<tr${cls}>
                     <td><div class="stats-player-cell">${avatarHtml}<span class="stats-player-name">${escHtml(p.nickname)}</span></div></td>
+                    <td>${ratingHtml}</td>
                     <td>${p.kills}</td>
                     <td>${p.deaths}</td>
                     <td>${p.assists}</td>
                     <td>${p.adr}</td>
-                    <td><span class="${kdClass(p.kd)}">${p.kd}</span></td>
+                    <td>${kdHtml}</td>
                     <td>${p.hs_pct}%</td>
                 </tr>`;
             }).join('');
@@ -997,7 +1019,7 @@
                 <div class="stats-team-title">${escHtml(factionName)}</div>
                 <table class="stats-table">
                     <thead><tr>
-                        <th>Игрок</th><th>K</th><th>D</th><th>A</th><th>ADR</th><th>K/D</th><th>HS%</th>
+                        <th>Игрок</th><th>Rating</th><th>K</th><th>D</th><th>A</th><th>ADR</th><th>K/D</th><th>HS%</th>
                     </tr></thead>
                     <tbody>${trs}</tbody>
                 </table>

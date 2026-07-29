@@ -82,11 +82,12 @@ The stats fetching module is located in `src/services/faceitService.js` and is i
     - Fetches `GET /api/active-matches?chatId=…` and renders each match with full team rosters, ELO badges, skill level icons, live score (if `ONGOING`), and tracked-player highlights.
     - Tracked players shown in green; teams colour-coded blue/red.
     - Shows a 🔄 Refresh button.
+    - **Match stats table** (`renderStatsTable`): columns are `Игрок | Rating | K | D | A | ADR | K/D | HS%` — `Rating` is the first stat column (right after the player cell), mirroring the `/stats` leaderboard PNG column order. `Rating` and `K/D` values are rendered as pill-shaped `.stats-chip` spans (tinted background + coloured border + coloured text, via `--positive-tint`/`--positive-border`/`--negative-tint`/`--negative-border` CSS vars) instead of plain coloured text, to stay visually consistent with the glass chips (`drawGlassChip`) used in the generated PNG cards from `imageService.js`. Threshold for good/bad in both is `>= 1.0`.
 - **REST API Handler**: `src/handlers/apiHandler.js`. Serves `GET /api/active-matches?chatId=<id>` and `GET /api/match?matchId=<id>&chatId=<id>`.
     - Active matches response: JSON `{ matches: [...] }` — one entry per unique active match.
     - Each match includes `matchId`, `status`, `competition_name`, `region`, `best_of`, `results` (score), `mapInfo` (`{ name, image }` from voting data, nullable), `teams` (both rosters with ELO), `trackedPlayers`, `matchUrl`.
-    - Single match (`GET /api/match`): JSON `{ match: {...} }` — same shape plus `matchStats: { maps, players }` when FACEIT stats are available. `players` is keyed by `player_id` with `{ nickname, faction, kills, deaths, assists, kd, adr, hs_pct, isTracked, avatar }`.
-    - `processMatchStats(statsData, faction1Id, faction2Id)` — local helper that aggregates per-player stats across maps and extracts map scores (used by `getMatch`).
+    - Single match (`GET /api/match`): JSON `{ match: {...} }` — same shape plus `matchStats: { maps, players }` when FACEIT stats are available. `players` is keyed by `player_id` with `{ nickname, faction, kills, deaths, assists, kd, adr, hs_pct, rating, isTracked, avatar }`. `rating` (`number|null`) is an HLTV Rating 2.0 approximation via `estimateMatchRating` (`ratingEstimator.js`), computed from the player's match totals and the sum of round counts across the maps they played (`f1_score + f2_score` per map, since the raw stats endpoint doesn't expose a `Rounds` field directly).
+    - `processMatchStats(statsData, faction1Id, faction2Id)` — local helper that aggregates per-player stats across maps (including per-map round totals for the rating estimate) and extracts map scores (used by `getMatch`).
     - Match ID sources for active-matches are delegated to `src/services/matchService.js`.
 - **Storage Module**: `src/services/storageService.js`. Manages per-chat data using Firestore.
     - **Collections**:
