@@ -85,9 +85,23 @@ async function handleMatchEvent(payload) {
         const team1TrackedPlayers = nicknames.filter(n => faction1.roster?.some(p => p.nickname === n));
         const team2TrackedPlayers = nicknames.filter(n => faction2.roster?.some(p => p.nickname === n));
 
+        // Roster avatars come straight from the FACEIT match roster (`p.avatar`) —
+        // no extra API call needed (see enrichMatchWithRosterElos, which relies on
+        // the same field for the web app).
+        const team1Players = (faction1.roster || []).map(p => ({
+            nickname: p.nickname,
+            avatar_url: p.avatar || null,
+            tracked: team1TrackedPlayers.includes(p.nickname),
+        }));
+        const team2Players = (faction2.roster || []).map(p => ({
+            nickname: p.nickname,
+            avatar_url: p.avatar || null,
+            tracked: team2TrackedPlayers.includes(p.nickname),
+        }));
+
         const matchInfo = {
-            team1: { name: team1Name, elo: team1Elo, winProb: team1WinProb, trackedPlayers: team1TrackedPlayers },
-            team2: { name: team2Name, elo: team2Elo, winProb: team2WinProb, trackedPlayers: team2TrackedPlayers },
+            team1: { name: team1Name, elo: team1Elo, winProb: team1WinProb, trackedPlayers: team1TrackedPlayers, players: team1Players },
+            team2: { name: team2Name, elo: team2Elo, winProb: team2WinProb, trackedPlayers: team2TrackedPlayers, players: team2Players },
             competition: competitionName,
             region,
             bestOf,

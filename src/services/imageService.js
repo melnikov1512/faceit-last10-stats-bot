@@ -1,5 +1,6 @@
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
+const { estimateMatchRating } = require('./ratingEstimator');
 
 // Register bundled Inter fonts so rendering is identical in every environment.
 // Fallback to system sans-serif only if files are missing (e.g. in unit tests).
@@ -476,10 +477,13 @@ const MATCH = {
     PADDING:      24,
     ACCENT_H:     4,
     HEADER_H:     72,   // title + meta, tight
-    TEAM_H:       64,   // one team row
+    TEAM_NAME_H:  34,   // name + ELO/win% sub-row
+    ROSTER_H:     42,   // roster avatars+nicknames sub-row
+    TEAM_H:       76,   // TEAM_NAME_H + ROSTER_H
     DIVIDER_H:    1,
     FOOTER_H:     34,
     BADGE_R:      13,   // fully rounded pill (h/2 for h=26)
+    ROSTER_AVATAR_R: 10,  // small avatar next to each roster nickname (5 fit per row)
 };
 
 /**
@@ -500,11 +504,19 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 /**
- * Draws one team row: name (left), ELO + win% pill (right).
- * Tracked team gets orange left accent + brighter name.
+ * Draws one team block: name + ELO/win% pill on top, then a roster row
+ * with each player's small avatar directly left of their nickname — up to
+ * 5 players fit across the card width in a single row. Tracked players get
+ * an accent-coloured nickname + a thin accent ring around their avatar.
+ * Tracked team (any tracked player present) gets an orange left accent bar.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {{ name, elo, winProb, trackedPlayers, players }} team
+ *   `players` (optional): Array<{ nickname, avatar_url, tracked }>, up to 5 shown.
+ * @param {number} y  top Y of this team block
+ * @param {Array<Image|null>} avatarImages  pre-loaded avatars, parallel to team.players
  */
-function drawTeamBlock(ctx, team, y) {
-    const { WIDTH: W, PADDING: P, TEAM_H, BADGE_R } = MATCH;
+function drawTeamBlock(ctx, team, y, avatarImages = []) {
+    const { WIDTH: W, PADDING: P, TEAM_H, TEAM_NAME_H, BADGE_R, ROSTER_AVATAR_R } = MATCH;
     const hasTracked = team.trackedPlayers.length > 0;
 
     ctx.fillStyle = hasTracked ? COLOR.trackedBg : COLOR.bg;
@@ -518,34 +530,24 @@ function drawTeamBlock(ctx, team, y) {
     ctx.fillStyle = COLOR.separator;
     ctx.fillRect(0, y + TEAM_H - 1, W, 1);
 
-    const textY = y + TEAM_H / 2 + 7;
-
-    // Team name — if tracked players present, shift up to make room for second line
-    const nameY = hasTracked ? y + TEAM_H / 2 - 4 : textY;
+    // ── Top sub-row: team name (left), ELO + win% pill (right) ────────────────
+    const nameY = y + TEAM_NAME_H / 2 + 6;
 
     ctx.fillStyle = hasTracked ? COLOR.text : COLOR.subtext;
-    ctx.font      = `bold 20px ${FONT_FAMILY}`;
+    ctx.font      = `bold 19px ${FONT_FAMILY}`;
     ctx.textAlign = 'left';
     ctx.fillText(truncateText(ctx, team.name, W - P * 2 - 100), P + 8, nameY);
 
-    // Tracked player nicknames (second line, orange)
-    if (hasTracked) {
-        ctx.fillStyle = COLOR.accent;
-        ctx.font      = `13px ${FONT_FAMILY}`;
-        ctx.fillText(team.trackedPlayers.join('  ·  '), P + 8, nameY + 20);
-    }
-
-    // Right side: ELO and win% pill
     let rightX = W - P;
 
     if (team.winProb != null) {
         const pct      = Math.round(team.winProb * 100);
         const label    = `${pct}%`;
-        ctx.font       = `bold 17px ${FONT_FAMILY}`;
-        const pillW    = ctx.measureText(label).width + 18;
-        const pillH    = 26;
+        ctx.font       = `bold 16px ${FONT_FAMILY}`;
+        const pillW    = ctx.measureText(label).width + 16;
+        const pillH    = 24;
         const pillX    = rightX - pillW;
-        const pillY    = y + TEAM_H / 2 - pillH / 2;
+        const pillY    = y + TEAM_NAME_H / 2 - pillH / 2;
         const pillColor  = hasTracked ? 'rgba(255,122,51,0.16)' : 'rgba(255,255,255,0.08)';
         const pillBorder = hasTracked ? 'rgba(255,122,51,0.6)'  : COLOR.separator;
 
@@ -557,17 +559,73 @@ function drawTeamBlock(ctx, team, y) {
         ctx.stroke();
         ctx.fillStyle = hasTracked ? COLOR.accent : COLOR.subtext;
         ctx.textAlign = 'center';
-        ctx.fillText(label, pillX + pillW / 2, pillY + 17);
+        ctx.fillText(label, pillX + pillW / 2, pillY + 16);
 
         rightX = pillX - 10;
     }
 
     if (team.elo != null) {
         ctx.fillStyle = COLOR.subtext;
-        ctx.font      = `bold 18px ${FONT_FAMILY}`;
+        ctx.font      = `bold 17px ${FONT_FAMILY}`;
         ctx.textAlign = 'right';
-        ctx.fillText(`${team.elo} ELO`, rightX, textY);
+        ctx.fillText(`${team.elo} ELO`, rightX, nameY);
     }
+
+    // ── Roster sub-row: avatar + nickname per player, up to 5 across ──────────
+    const players = Array.isArray(team.players) ? team.players.slice(0, 5) : [];
+
+    if (players.length > 0) {
+        const rosterY  = y + TEAM_NAME_H;
+        const rosterH  = TEAM_H - TEAM_NAME_H;
+        const midY     = rosterY + rosterH / 2;
+        const slotW    = (W - P * 2) / players.length;
+
+        players.forEach((player, i) => {
+            const slotX    = P + slotW * i;
+            const avatarCx = slotX + ROSTER_AVATAR_R + 2;
+            const img      = avatarImages[i];
+
+            if (img) {
+                drawCircularAvatar(ctx, img, avatarCx, midY, ROSTER_AVATAR_R);
+            } else {
+                drawAvatarPlaceholder(ctx, player.nickname?.[0], avatarCx, midY, ROSTER_AVATAR_R);
+            }
+
+            if (player.tracked) {
+                ctx.beginPath();
+                ctx.arc(avatarCx, midY, ROSTER_AVATAR_R + 1.5, 0, Math.PI * 2);
+                ctx.strokeStyle = COLOR.accent;
+                ctx.lineWidth   = 1.5;
+                ctx.stroke();
+            }
+
+            const nameX    = avatarCx + ROSTER_AVATAR_R + 6;
+            const nameMaxW = slotW - ROSTER_AVATAR_R * 2 - 6 - 6;
+            ctx.fillStyle  = player.tracked ? COLOR.accent : COLOR.subtext;
+            ctx.font       = `bold 11px ${FONT_FAMILY}`;
+            ctx.textAlign  = 'left';
+            ctx.fillText(truncateText(ctx, player.nickname, nameMaxW), nameX, midY + 4);
+        });
+    } else if (hasTracked) {
+        // Fallback (no roster data supplied): comma-separated tracked names.
+        ctx.fillStyle = COLOR.accent;
+        ctx.font      = `13px ${FONT_FAMILY}`;
+        ctx.textAlign = 'left';
+        ctx.fillText(team.trackedPlayers.join('  ·  '), P + 8, y + TEAM_NAME_H + 24);
+    }
+}
+
+/**
+ * Loads up to 5 roster avatar images in parallel for a team block.
+ * @param {Array<{ avatar_url }>} [players]
+ * @returns {Promise<Array<Image|null>>}
+ */
+async function loadTeamAvatars(players) {
+    if (!Array.isArray(players)) return [];
+    return Promise.all(players.slice(0, 5).map(async (player) => {
+        if (!player.avatar_url) return null;
+        try { return await loadImage(player.avatar_url); } catch { return null; }
+    }));
 }
 
 /**
@@ -585,6 +643,11 @@ async function generateMatchImage(matchInfo) {
     const { team1, team2, competition, region, bestOf } = matchInfo;
     const { WIDTH: W, PADDING: P, ACCENT_H, HEADER_H, TEAM_H, DIVIDER_H, FOOTER_H } = MATCH;
     const HEIGHT = ACCENT_H + HEADER_H + TEAM_H + DIVIDER_H + TEAM_H + FOOTER_H;
+
+    const [team1Avatars, team2Avatars] = await Promise.all([
+        loadTeamAvatars(team1.players),
+        loadTeamAvatars(team2.players),
+    ]);
 
     // Whole card is one frosted-glass panel over the colour mesh.
     const canvas = renderAsGlassCard(W, HEIGHT, (ctx, fullW, fullH) => {
@@ -620,12 +683,12 @@ async function generateMatchImage(matchInfo) {
 
         // ── Teams ─────────────────────────────────────────────────────────────
         const teamsY = ACCENT_H + HEADER_H;
-        drawTeamBlock(ctx, team1, teamsY);
+        drawTeamBlock(ctx, team1, teamsY, team1Avatars);
 
         ctx.fillStyle = COLOR.separator;
         ctx.fillRect(0, teamsY + TEAM_H, W, DIVIDER_H);
 
-        drawTeamBlock(ctx, team2, teamsY + TEAM_H + DIVIDER_H);
+        drawTeamBlock(ctx, team2, teamsY + TEAM_H + DIVIDER_H, team2Avatars);
 
         // ── Footer ────────────────────────────────────────────────────────────
         const footerY = HEIGHT - FOOTER_H;
@@ -920,6 +983,19 @@ async function _loadAvatar(url) {
 }
 
 /**
+ * Estimates a per-match HLTV-style Rating from result-card stats.
+ * Rounds played = teamScore + opponentScore (final map score).
+ * @param {{ kills, deaths, assists, adr, teamScore, opponentScore }} data
+ * @returns {number|null}
+ */
+function computeMatchRating({ kills, deaths, assists, adr, teamScore, opponentScore }) {
+    if (teamScore == null || opponentScore == null) return null;
+    const rounds = teamScore + opponentScore;
+    if (!rounds) return null;
+    return estimateMatchRating({ kills, deaths, assists, rounds, adr });
+}
+
+/**
  * Draws a single match result card onto `ctx` starting at `offsetY`.
  * Pure drawing function — does NOT load the avatar (pass pre-loaded image or null).
  * @param {CanvasRenderingContext2D} ctx
@@ -931,7 +1007,7 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
     const {
         nickname, skillLevel,
         currentElo, eloChange,
-        kills, assists, kd, adr, hsPercent, result,
+        kills, deaths, assists, kd, adr, hsPercent, result,
         competition, map,
         teamScore, opponentScore,
     } = data;
@@ -1040,9 +1116,11 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
     ctx.fillRect(0, statsY, W, STATS_H);
 
     const kdValue = parseFloat(kd);
+    const ratingValue = data.rating ?? computeMatchRating(data);
     const statCols = [
         { label: 'KILLS',   value: String(kills),   chip: false },
         { label: 'ASSISTS', value: String(assists), chip: false },
+        { label: 'RATING',  value: ratingValue != null ? `~${ratingValue.toFixed(2)}` : '—', chip: ratingValue != null, positive: ratingValue != null && ratingValue >= 1.0 },
         { label: 'K/D',     value: kdValue.toFixed(2), chip: true, positive: kdValue >= 1.0 },
         { label: 'ADR',     value: parseFloat(adr).toFixed(1), chip: false },
         { label: 'HS%',     value: `${hsPercent}%`, chip: false },
@@ -1074,6 +1152,10 @@ function _drawMatchResultCard(ctx, data, offsetY, avatar) {
     ctx.fillRect(0, footerY, W, FOOTER_H);
     ctx.fillStyle = COLOR.subtext;
     ctx.font      = `12px ${FONT_FAMILY}`;
+    if (ratingValue != null) {
+        ctx.textAlign = 'left';
+        ctx.fillText('~ = estimated Rating', P, footerY + FOOTER_H / 2 + 4);
+    }
     ctx.textAlign = 'right';
     ctx.fillText('FACEIT Stats Bot', W - P, footerY + FOOTER_H / 2 + 4);
 }
@@ -1113,11 +1195,192 @@ async function generateMatchResultImage(data) {
     return canvas.toBuffer('image/png');
 }
 
+// ── Match results summary (table redesign) ────────────────────────────────────
+// Instead of stacking full single-player result cards vertically (bulky), the
+// summary renders one compact glass table — one row per player — reusing the
+// same avatar/skill-badge/chip primitives as the rest of the card set.
+
+const SUMMARY = {
+    WIDTH:     720,
+    PADDING:   28,
+    ACCENT_H:  5,
+    HEADER_H:  92,
+    ROW_H:     66,
+    FOOTER_H:  42,
+    AVATAR_R:  18,
+    BADGE_R:   13,
+};
+
+// Column widths tuned so Player + 7 stat columns fit WIDTH - PADDING*2 exactly.
+const SUMMARY_COLUMNS = [
+    { label: 'Player', w: 200, align: 'left'   },
+    { label: 'Result', w: 72,  align: 'center' },
+    { label: 'Rating', w: 72,  align: 'right'  },
+    { label: 'K/D',    w: 62,  align: 'right'  },
+    { label: 'ADR',    w: 62,  align: 'right'  },
+    { label: 'HS%',    w: 56,  align: 'right'  },
+    { label: 'ELO',    w: 70,  align: 'right'  },
+    { label: '± ELO',  w: 70,  align: 'right'  },
+];
+
+const SUMMARY_COL_X = SUMMARY_COLUMNS.map((_, i) =>
+    SUMMARY_COLUMNS.slice(0, i).reduce((sum, c) => sum + c.w, SUMMARY.PADDING)
+);
+
 /**
- * Generates one vertical image stacking multiple match result cards (one per player).
- * Eliminates intermediate PNG encode/decode — all cards are drawn directly onto a
- * single canvas; only one final toBuffer() call is made.
- * @param {Array<object>} playersData
+ * Draws the summary table header: title, shared match meta (competition/map),
+ * and the column label row.
+ * @param {{ competition, map }} meta  taken from the first player's data — the
+ *   whole summary is always for a single match, so this is shared by all rows.
+ */
+function drawSummaryHeader(ctx, meta) {
+    const { WIDTH: W, PADDING: P, ACCENT_H, HEADER_H } = SUMMARY;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.045)';
+    ctx.fillRect(0, 0, W, ACCENT_H + HEADER_H);
+
+    ctx.fillStyle = COLOR.accent;
+    ctx.fillRect(0, 0, W, ACCENT_H);
+
+    ctx.fillStyle    = COLOR.text;
+    ctx.font         = `bold 24px ${FONT_FAMILY}`;
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('MATCH RESULTS', P, ACCENT_H + 34);
+
+    const metaParts = [meta.competition, meta.map].filter(Boolean);
+    ctx.fillStyle = COLOR.subtext;
+    ctx.font      = `15px ${FONT_FAMILY}`;
+    ctx.fillText(metaParts.length ? metaParts.join('  ·  ') : 'CS2', P, ACCENT_H + 58);
+
+    const colLabelY = ACCENT_H + HEADER_H - 14;
+    ctx.font = `bold 13px ${FONT_FAMILY}`;
+    SUMMARY_COLUMNS.forEach((col, i) => {
+        ctx.fillStyle = COLOR.subtext;
+        if (col.align === 'left') {
+            ctx.textAlign = 'left';
+            ctx.fillText(col.label.toUpperCase(), SUMMARY_COL_X[i], colLabelY);
+        } else if (col.align === 'center') {
+            ctx.textAlign = 'center';
+            ctx.fillText(col.label.toUpperCase(), SUMMARY_COL_X[i] + col.w / 2, colLabelY);
+        } else {
+            ctx.textAlign = 'right';
+            ctx.fillText(col.label.toUpperCase(), SUMMARY_COL_X[i] + col.w - 4, colLabelY);
+        }
+    });
+
+    ctx.fillStyle = COLOR.separator;
+    ctx.fillRect(0, ACCENT_H + HEADER_H - 1, W, 1);
+}
+
+/**
+ * Draws one player's row in the summary table: avatar + skill badge +
+ * nickname, WIN/LOSE chip + score, Rating chip, K/D chip, ADR, HS%,
+ * ELO, and ±ELO chip.
+ */
+function drawSummaryRow(ctx, player, rowIndex, avatar) {
+    const { WIDTH: W, ACCENT_H, HEADER_H, ROW_H, AVATAR_R, BADGE_R } = SUMMARY;
+    const rowY  = ACCENT_H + HEADER_H + rowIndex * ROW_H;
+    const midY  = rowY + ROW_H / 2;
+    const textY = midY + 5;
+
+    ctx.fillStyle = rowIndex % 2 === 0 ? 'rgba(255,255,255,0)' : COLOR.rowAlt;
+    ctx.fillRect(0, rowY, W, ROW_H);
+    ctx.fillStyle = COLOR.separator;
+    ctx.fillRect(0, rowY + ROW_H - 1, W, 1);
+
+    // ── Player: avatar + skill badge + nickname ────────────────────────────────
+    const avatarCx = SUMMARY_COL_X[0] + AVATAR_R;
+    if (avatar) {
+        drawCircularAvatar(ctx, avatar, avatarCx, midY, AVATAR_R);
+    } else {
+        drawAvatarPlaceholder(ctx, player.nickname?.[0], avatarCx, midY, AVATAR_R);
+    }
+
+    const badgeCx = avatarCx + AVATAR_R + 8 + BADGE_R;
+    drawSkillBadge(ctx, player.skillLevel, badgeCx, midY, BADGE_R);
+
+    const nameX    = badgeCx + BADGE_R + 10;
+    const nameMaxW = SUMMARY_COLUMNS[0].w - (nameX - SUMMARY_COL_X[0]) - 6;
+    ctx.fillStyle    = COLOR.text;
+    ctx.font         = `bold 16px ${FONT_FAMILY}`;
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(truncateText(ctx, player.nickname, nameMaxW), nameX, textY);
+
+    // ── Result: WIN/LOSE chip + round score ────────────────────────────────────
+    const isWin     = player.result === 1 || player.result === '1';
+    const resultCx  = SUMMARY_COL_X[1] + SUMMARY_COLUMNS[1].w / 2;
+    ctx.font = `bold 11px ${FONT_FAMILY}`;
+    drawGlassChip(ctx, isWin ? 'WIN' : 'LOSE', resultCx, midY - 9, isWin, 'center');
+    if (player.teamScore != null && player.opponentScore != null) {
+        ctx.fillStyle    = isWin ? COLOR.positive : COLOR.negative;
+        ctx.font         = `bold 11px ${FONT_FAMILY}`;
+        ctx.textAlign    = 'center';
+        ctx.fillText(`${player.teamScore}:${player.opponentScore}`, resultCx, midY + 16);
+    }
+
+    // ── Rating chip ──────────────────────────────────────────────────────────
+    const ratingValue = player.rating ?? computeMatchRating(player);
+    const rText       = ratingValue != null ? `~${ratingValue.toFixed(2)}` : '—';
+    const ratingRightX = SUMMARY_COL_X[2] + SUMMARY_COLUMNS[2].w - 4;
+    ctx.font = `bold 15px ${FONT_FAMILY}`;
+    if (ratingValue != null) {
+        drawGlassChip(ctx, rText, ratingRightX, midY, ratingValue >= 1.0, 'right');
+    } else {
+        ctx.fillStyle    = COLOR.subtext;
+        ctx.textAlign    = 'right';
+        ctx.fillText(rText, ratingRightX, textY);
+    }
+
+    // ── K/D chip ─────────────────────────────────────────────────────────────
+    const kdValue  = parseFloat(player.kd);
+    const kdRightX = SUMMARY_COL_X[3] + SUMMARY_COLUMNS[3].w - 4;
+    ctx.font = `bold 14px ${FONT_FAMILY}`;
+    drawGlassChip(ctx, kdValue.toFixed(2), kdRightX, midY, kdValue >= 1.0, 'right');
+
+    // ── ADR / HS% (plain text) ───────────────────────────────────────────────
+    ctx.fillStyle    = COLOR.text;
+    ctx.font         = `15px ${FONT_FAMILY}`;
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(parseFloat(player.adr).toFixed(1), SUMMARY_COL_X[4] + SUMMARY_COLUMNS[4].w - 4, textY);
+    ctx.fillText(`${player.hsPercent}%`, SUMMARY_COL_X[5] + SUMMARY_COLUMNS[5].w - 4, textY);
+
+    // ── ELO / ±ELO ───────────────────────────────────────────────────────────
+    ctx.fillStyle = COLOR.subtext;
+    ctx.fillText(player.currentElo != null ? String(player.currentElo) : '—', SUMMARY_COL_X[6] + SUMMARY_COLUMNS[6].w - 4, textY);
+
+    if (player.eloChange != null) {
+        const sign        = player.eloChange >= 0 ? '+' : '';
+        const eloRightX   = SUMMARY_COL_X[7] + SUMMARY_COLUMNS[7].w - 4;
+        ctx.font = `bold 14px ${FONT_FAMILY}`;
+        drawGlassChip(ctx, `${sign}${player.eloChange}`, eloRightX, midY, player.eloChange >= 0, 'right');
+    }
+}
+
+function drawSummaryFooter(ctx, playerCount) {
+    const { WIDTH: W, PADDING: P, ACCENT_H, HEADER_H, ROW_H, FOOTER_H } = SUMMARY;
+    const footerY = ACCENT_H + HEADER_H + playerCount * ROW_H;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.045)';
+    ctx.fillRect(0, footerY, W, FOOTER_H);
+    ctx.fillStyle    = COLOR.subtext;
+    ctx.font         = `13px ${FONT_FAMILY}`;
+    ctx.textBaseline = 'alphabetic';
+
+    ctx.textAlign = 'left';
+    ctx.fillText('~ = estimated Rating', P, footerY + FOOTER_H / 2 + 5);
+
+    ctx.textAlign = 'right';
+    ctx.fillText('FACEIT Stats Bot', W - P, footerY + FOOTER_H / 2 + 5);
+}
+
+/**
+ * Generates the match-finish summary as one compact glass table — one row
+ * per tracked player, sharing the match meta (competition/map) in a single
+ * header instead of repeating a full card per player.
+ * @param {Array<object>} playersData  same per-player shape as generateMatchResultImage's `data`
  * @returns {Promise<Buffer>}
  */
 async function generateMatchResultsSummaryImage(playersData) {
@@ -1125,30 +1388,19 @@ async function generateMatchResultsSummaryImage(playersData) {
         throw new Error('playersData is required');
     }
 
-    const { WIDTH: W } = RESULT_CARD;
-    const GAP        = 12;
-    const bodyHeight = RESULT_CARD_H * playersData.length + GAP * (playersData.length - 1);
+    const { WIDTH: W, ACCENT_H, HEADER_H, ROW_H, FOOTER_H } = SUMMARY;
+    const contentHeight = ACCENT_H + HEADER_H + playersData.length * ROW_H + FOOTER_H;
 
     // Load all avatars in parallel — no intermediate PNG encode/decode
     const avatars = await Promise.all(playersData.map(d => _loadAvatar(d.avatar_url)));
 
-    // Each stacked card is its own frosted-glass panel over the
-    // shared colour mesh — a vertical list of glass cards.
-    const fullW = W + CARD_MARGIN * 2;
-    const fullH = bodyHeight + CARD_MARGIN * 2;
-    const canvas = createCanvas(fullW, fullH);
-    const ctx    = canvas.getContext('2d');
-
-    drawMesh(ctx, fullW, fullH);
-
-    ctx.save();
-    ctx.translate(CARD_MARGIN, CARD_MARGIN);
-    for (let i = 0; i < playersData.length; i++) {
-        const offsetY = i * (RESULT_CARD_H + GAP);
-        drawGlassPanel(ctx, 0, offsetY, W, RESULT_CARD_H, GLASS_RADIUS, fullW, fullH);
-        _drawMatchResultCard(ctx, playersData[i], offsetY, avatars[i]);
-    }
-    ctx.restore();
+    // Whole table is one frosted-glass panel over the shared colour mesh.
+    const canvas = renderAsGlassCard(W, contentHeight, (ctx, fullW, fullH) => {
+        drawGlassPanel(ctx, 0, 0, W, contentHeight, GLASS_RADIUS, fullW, fullH);
+        drawSummaryHeader(ctx, playersData[0]);
+        playersData.forEach((player, i) => drawSummaryRow(ctx, player, i, avatars[i]));
+        drawSummaryFooter(ctx, playersData.length);
+    });
 
     return canvas.toBuffer('image/png');
 }

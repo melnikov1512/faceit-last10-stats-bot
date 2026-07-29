@@ -176,18 +176,26 @@ async function sendTelegramPhoto(chatId, imageBuffer, replyMarkup, caption) {
             ?.filter(p => p.nickname?.toLowerCase() === NICKNAME.toLowerCase())
             .map(p => p.nickname) ?? [];
 
+        const toRosterPlayers = (roster, trackedPlayers) => (roster || []).map(p => ({
+            nickname:   p.nickname,
+            avatar_url: p.avatar || null,
+            tracked:    trackedPlayers.includes(p.nickname),
+        }));
+
         const matchInfo = {
             team1: {
                 name:           f1?.name || 'Faction 1',
                 elo:            f1?.stats?.rating ?? null,
                 winProb:        f1?.stats?.winProbability ?? null,
                 trackedPlayers: team1TrackedPlayers,
+                players:        toRosterPlayers(f1?.roster, team1TrackedPlayers),
             },
             team2: {
                 name:           f2?.name || 'Faction 2',
                 elo:            f2?.stats?.rating ?? null,
                 winProb:        f2?.stats?.winProbability ?? null,
                 trackedPlayers: team2TrackedPlayers,
+                players:        toRosterPlayers(f2?.roster, team2TrackedPlayers),
             },
             competition: match.competition_name ?? null,
             region:      match.region ?? null,
