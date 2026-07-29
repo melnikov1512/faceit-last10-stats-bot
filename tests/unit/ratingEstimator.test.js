@@ -132,7 +132,7 @@ describe('estimateMatchRating — multi-kill / MVP / entry / clutch bonuses', ()
 
 describe('FACEIT_BASELINE_SCALE', () => {
     it('exports the HLTV-2.0-to-FACEIT-baseline calibration constant', () => {
-        expect(FACEIT_BASELINE_SCALE).toBe(1.1);
+        expect(FACEIT_BASELINE_SCALE).toBe(1.03);
     });
 });
 

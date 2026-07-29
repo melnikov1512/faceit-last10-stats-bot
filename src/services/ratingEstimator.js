@@ -22,41 +22,70 @@ const DEFAULT_KAST_ESTIMATE = 73.0;
  * per-round telemetry (economy state, bomb status, exact kill timing) that the public FACEIT
  * Data API v4 does not expose, so an exact match to either is not achievable this way.
  *
+ * Calibrated on 2026-07-29 against 30 real matches of a sample player (Rating column scraped
+ * from faceit.com's own match-history page, matched 1:1 against the same matches' Kills/Deaths/
+ * Assists/ADR/Rounds from the official Data API v4). The original 1.1 value overshot the real
+ * displayed Rating by +0.09 on average (with the bonuses below applied) — this rescaled value
+ * brought the mean error to roughly 0.
+ *
+ * Re-validated the same day against 180 more matches (30 each) from that player's 6 FACEIT
+ * friends, scraped the same way. One friend (dimiZe) showed "---" instead of a Rating on all
+ * 30 of their matches (FACEIT had no Rating computed for them) and was excluded for lack of
+ * ground truth. Across the remaining 6 players / 180 matches, this scale + the 25%-weighted
+ * bonuses below produced a mean bias of only +0.0003 (mean abs error ≈0.122), confirming the
+ * single-player calibration generalizes rather than being an overfit to one account.
+ *
  * @type {number}
  */
-const FACEIT_BASELINE_SCALE = 1.1;
+const FACEIT_BASELINE_SCALE = 1.03;
 
 /**
  * Heuristic per-round-rate bonus weights for notable multi-frag rounds, as a lightweight proxy
  * for HLTV Rating 3.0's "Multi-Kill Rating" sub-component (split out from Impact in the 3.0
  * overhaul). Not derived from any published FACEIT/HLTV coefficients — chosen to nudge, not
  * dominate, the final rating.
+ *
+ * Scaled down to 25% of their original values on 2026-07-29: the 2026-07-29 calibration
+ * (see `FACEIT_BASELINE_SCALE`) found these bonuses at full weight had *no positive* correlation
+ * with the real Rating residual (multi-kill rate actually correlated negatively, r ≈ -0.31),
+ * meaning they were adding inflation rather than improving accuracy. Re-validated the same day
+ * on 180 more matches across 6 other players — the negative correlation held up there too
+ * (double-kill rate r ≈ -0.21, quadro-kill rate r ≈ -0.22, MVP rate r ≈ -0.09). Kept at a
+ * reduced weight rather than removed entirely, since even ~200 matches across 7 accounts is
+ * still a small sample next to FACEIT's full player base.
  */
 const MULTI_KILL_WEIGHTS = {
-    double: 0.05,
-    triple: 0.15,
-    quadro: 0.35,
-    penta: 0.60,
+    double: 0.0125,
+    triple: 0.0375,
+    quadro: 0.0875,
+    penta: 0.15,
 };
 
-/** Heuristic per-round-rate weight for MVP awards (rough proxy for round-winning contribution). */
-const MVP_RATE_WEIGHT = 0.15;
+/**
+ * Heuristic per-round-rate weight for MVP awards (rough proxy for round-winning contribution).
+ * Scaled down to 25% of its original value on 2026-07-29 — see `MULTI_KILL_WEIGHTS` comment.
+ */
+const MVP_RATE_WEIGHT = 0.0375;
 
 /**
  * Heuristic per-round-rate weight for "Entry Wins" (won the opening duel of the round) — a
  * lightweight proxy for one of the situational inputs FACEIT Rating and HLTV Round Swing both
  * describe (opening picks that swing round win probability before the rest of the round plays out).
+ * Scaled down to 25% of its original value on 2026-07-29 — see `MULTI_KILL_WEIGHTS` comment
+ * (this specific field wasn't present in the calibration sample, but the same overweighting
+ * concern applies since it uses the same heuristic derivation as the multi-kill/MVP bonuses).
  */
-const ENTRY_WIN_RATE_WEIGHT = 0.12;
+const ENTRY_WIN_RATE_WEIGHT = 0.03;
 
 /**
  * Heuristic per-round-rate weights for clutch round wins (1v1 / 1v2), directly referencing the
  * "wins a 1v2 clutch" example from FACEIT's own Rating FAQ. Only available on the single-match
  * stats endpoint (`/matches/{id}/stats`), not the player game-stats endpoint.
+ * Scaled down to 25% of their original values on 2026-07-29 — see `MULTI_KILL_WEIGHTS` comment.
  */
 const CLUTCH_WIN_RATE_WEIGHTS = {
-    v1: 0.20,
-    v2: 0.40,
+    v1: 0.05,
+    v2: 0.10,
 };
 
 /**
