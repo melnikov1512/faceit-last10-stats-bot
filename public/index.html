@@ -666,6 +666,28 @@
             .vs-score-num.winner { font-size: 32px; text-shadow: none; }
             .vs-team-name span { font-size: 13px; }
         }
+
+        /* ── Match stats table: shrink to fit narrow viewports ──
+           The stats table has 8 columns (player + Rating/K/D/A/ADR/K-D/HS%) and
+           is tight even on phones. Telegram Desktop renders the Mini App in a
+           webview that can end up a bit narrower than a phone screen (plus a
+           persistent scrollbar eats extra px), so below 480px we compact fonts,
+           padding and chip sizing so every column keeps fitting without any
+           content being clipped. */
+        @media (max-width: 480px) {
+            .stats-table th, .stats-table td {
+                font-size: 11px;
+                padding: 6px 2px;
+            }
+
+            .stats-avatar, .stats-avatar-ph { width: 18px; height: 18px; }
+
+            .stats-player-cell { gap: 5px; }
+
+            .stats-table td:first-child { max-width: 84px; }
+
+            .stats-chip { padding: 2px 6px; }
+        }
     </style>
 </head>
 <body>
