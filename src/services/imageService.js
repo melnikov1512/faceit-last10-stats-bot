@@ -1026,14 +1026,25 @@ async function _loadAvatar(url) {
 /**
  * Estimates a per-match HLTV-style Rating from result-card stats.
  * Rounds played = teamScore + opponentScore (final map score).
- * @param {{ kills, deaths, assists, adr, teamScore, opponentScore }} data
+ * Forwards the optional multi-kill/MVP/entry/clutch counts (when present on `data`) so
+ * ratingEstimator can apply its heuristic bonuses — see ratingEstimator.js for details.
+ * @param {{ kills, deaths, assists, adr, teamScore, opponentScore, doubleKills, tripleKills,
+ *   quadroKills, pentaKills, mvps, entryWins, clutch1v1Wins, clutch1v2Wins }} data
  * @returns {number|null}
  */
-function computeMatchRating({ kills, deaths, assists, adr, teamScore, opponentScore }) {
+function computeMatchRating({
+    kills, deaths, assists, adr, teamScore, opponentScore,
+    doubleKills, tripleKills, quadroKills, pentaKills,
+    mvps, entryWins, clutch1v1Wins, clutch1v2Wins,
+}) {
     if (teamScore == null || opponentScore == null) return null;
     const rounds = teamScore + opponentScore;
     if (!rounds) return null;
-    return estimateMatchRating({ kills, deaths, assists, rounds, adr });
+    return estimateMatchRating({
+        kills, deaths, assists, rounds, adr,
+        doubleKills, tripleKills, quadroKills, pentaKills,
+        mvps, entryWins, clutch1v1Wins, clutch1v2Wins,
+    });
 }
 
 /**

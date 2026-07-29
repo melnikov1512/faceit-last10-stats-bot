@@ -292,6 +292,14 @@ async function handleMatchFinishedEvent(payload) {
                 map: stats.map ?? null,
                 teamScore: stats.teamScore ?? null,
                 opponentScore: stats.opponentScore ?? null,
+                doubleKills: stats.doubleKills ?? 0,
+                tripleKills: stats.tripleKills ?? 0,
+                quadroKills: stats.quadroKills ?? 0,
+                pentaKills: stats.pentaKills ?? 0,
+                mvps: stats.mvps ?? 0,
+                entryWins: stats.entryWins ?? 0,
+                clutch1v1Wins: stats.clutch1v1Wins ?? 0,
+                clutch1v2Wins: stats.clutch1v2Wins ?? 0,
             };
         });
 

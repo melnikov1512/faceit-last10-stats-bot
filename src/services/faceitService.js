@@ -176,6 +176,8 @@ function calculateAverageStats(statsArray) {
 /**
  * Average the per-match HLTV Rating 2.0 approximation across analysed matches.
  * This is not FACEIT's real Rating; see ratingEstimator.js for the estimation details.
+ * Also passes through multi-kill and MVP counts (verified live on the player-stats endpoint)
+ * so the estimator can apply its Multi-Kill/MVP heuristic bonuses.
  *
  * @param {Array<Object>} statsArray Raw FACEIT v4 per-match stats objects.
  * @returns {number|null} Arithmetic mean of valid estimated ratings, or null when none are computable.
@@ -188,6 +190,11 @@ function estimateAverageRating(statsArray) {
             assists: parseInt(stat.Assists, 10) || 0,
             rounds: parseInt(stat.Rounds, 10) || 0,
             adr: parseFloat(stat.ADR) || 0,
+            doubleKills: parseInt(stat['Double Kills'], 10) || 0,
+            tripleKills: parseInt(stat['Triple Kills'], 10) || 0,
+            quadroKills: parseInt(stat['Quadro Kills'], 10) || 0,
+            pentaKills: parseInt(stat['Penta Kills'], 10) || 0,
+            mvps: parseInt(stat['MVPs'], 10) || 0,
         }))
         .filter(rating => rating !== null);
 
@@ -357,9 +364,12 @@ async function getMatchStats(apiKey, matchId) {
 /**
  * Extract a single player's stats from a FACEIT match stats response.
  * Looks through rounds[0].teams[].players[] for a matching player_id.
+ * Also extracts the extra fields (verified live on this endpoint only, not the player-stats
+ * endpoint) used by ratingEstimator's Multi-Kill/MVP/Entry/Clutch heuristic bonuses.
  * @param {object} matchStats  Response from GET /matches/{id}/stats
  * @param {string} playerId
- * @returns {{ kills, deaths, assists, kd, adr, hsPercent, result, map, teamScore, opponentScore }|null}
+ * @returns {{ kills, deaths, assists, kd, adr, hsPercent, result, map, teamScore, opponentScore,
+ *   doubleKills, tripleKills, quadroKills, pentaKills, mvps, entryWins, clutch1v1Wins, clutch1v2Wins }|null}
  */
 function extractPlayerMatchStats(matchStats, playerId) {
     if (!matchStats?.rounds?.length) return null;
@@ -388,6 +398,14 @@ function extractPlayerMatchStats(matchStats, playerId) {
                 map,
                 teamScore:     isNaN(rawTeam) ? null : rawTeam,
                 opponentScore: isNaN(rawOpp)  ? null : rawOpp,
+                doubleKills:    parseInt(s['Double Kills'], 10) || 0,
+                tripleKills:    parseInt(s['Triple Kills'], 10) || 0,
+                quadroKills:    parseInt(s['Quadro Kills'], 10) || 0,
+                pentaKills:     parseInt(s['Penta Kills'], 10)  || 0,
+                mvps:           parseInt(s['MVPs'], 10)         || 0,
+                entryWins:      parseInt(s['Entry Wins'], 10)   || 0,
+                clutch1v1Wins:  parseInt(s['1v1Wins'], 10)      || 0,
+                clutch1v2Wins:  parseInt(s['1v2Wins'], 10)      || 0,
             };
         }
     }

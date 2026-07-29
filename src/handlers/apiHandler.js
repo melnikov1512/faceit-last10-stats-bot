@@ -107,6 +107,8 @@ function processMatchStats(statsData, faction1Id, faction2Id) {
                         faction: factionKey,
                         kills: 0, deaths: 0, assists: 0, headshots: 0,
                         adr_sum: 0, maps_played: 0, rounds_sum: 0,
+                        doubleKills: 0, tripleKills: 0, quadroKills: 0, pentaKills: 0,
+                        mvps: 0, entryWins: 0, clutch1v1Wins: 0, clutch1v2Wins: 0,
                     };
                 }
                 const ps = player.player_stats || {};
@@ -117,6 +119,14 @@ function processMatchStats(statsData, faction1Id, faction2Id) {
                 accumulator[pid].adr_sum    += parseFloat(ps['ADR']    || 0);
                 accumulator[pid].maps_played++;
                 accumulator[pid].rounds_sum += mapRounds;
+                accumulator[pid].doubleKills    += parseInt(ps['Double Kills'] || 0, 10);
+                accumulator[pid].tripleKills    += parseInt(ps['Triple Kills'] || 0, 10);
+                accumulator[pid].quadroKills    += parseInt(ps['Quadro Kills'] || 0, 10);
+                accumulator[pid].pentaKills     += parseInt(ps['Penta Kills']  || 0, 10);
+                accumulator[pid].mvps           += parseInt(ps['MVPs']        || 0, 10);
+                accumulator[pid].entryWins      += parseInt(ps['Entry Wins']  || 0, 10);
+                accumulator[pid].clutch1v1Wins  += parseInt(ps['1v1Wins']     || 0, 10);
+                accumulator[pid].clutch1v2Wins  += parseInt(ps['1v2Wins']     || 0, 10);
             }
         }
 
@@ -131,6 +141,10 @@ function processMatchStats(statsData, faction1Id, faction2Id) {
         const rating  = estimateMatchRating({
             kills: p.kills, deaths: p.deaths, assists: p.assists,
             rounds: p.rounds_sum, adr: parseFloat(adr),
+            doubleKills: p.doubleKills, tripleKills: p.tripleKills,
+            quadroKills: p.quadroKills, pentaKills: p.pentaKills,
+            mvps: p.mvps, entryWins: p.entryWins,
+            clutch1v1Wins: p.clutch1v1Wins, clutch1v2Wins: p.clutch1v2Wins,
         });
         players[pid]  = { nickname: p.nickname, faction: p.faction, kills: p.kills, deaths: p.deaths, assists: p.assists, kd, adr, hs_pct, rating };
     }
