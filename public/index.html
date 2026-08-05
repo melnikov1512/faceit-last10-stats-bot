@@ -845,42 +845,55 @@
                 .map(w => w[0]?.toUpperCase() || '').join('');
         }
 
-        // Skill level colour map — matches SKILL_COLOR in imageService.js exactly
+        // Skill level colour map — matches SKILL_COLOR in imageService.js exactly.
+        // Bands match FACEIT's own current skill-level gauge (verified live via
+        // Playwright against faceit.com's player stats page, 2026-08-05).
         const SKILL_COLORS = {
-            1:'#888888', 2:'#888888', 3:'#888888',
-            4:'#5FBA53', 5:'#5FBA53', 6:'#5FBA53',
-            7:'#FFC400', 8:'#FFC400',
-            9:'#FF8500', 10:'#FF5500',
+            1:'#F1F1F1',
+            2:'#05FF00', 3:'#05FF00',
+            4:'#FFC700', 5:'#FFC700', 6:'#FFC700', 7:'#FFC700',
+            8:'#FF4B00', 9:'#FF4B00',
+            10:'#EF0000',
         };
+
+        // Track-ring colour — same translucent hairline used for glass borders
+        // elsewhere (--divider), reused here instead of a new hardcoded grey.
+        const SKILL_TRACK_COLOR = 'rgba(255,255,255,0.18)';
 
         /**
          * Renders a circular FACEIT-style skill badge as an inline SVG.
-         * Mirrors drawSkillBadge() from imageService.js:
-         *  – translucent dark background circle (rgba(10,10,16,0.55), matches
-         *    the tweak applied to drawSkillBadge() in imageService.js)
-         *  – 300° coloured arc (gap at bottom centre)
-         *  – coloured level number in the centre
+         * Mirrors drawSkillBadge() from imageService.js (matches FACEIT's own
+         * circular gauge icon, verified live via Playwright, 2026-08-05):
+         *  – translucent dark background circle (rgba(10,10,16,0.55))
+         *  – full 300° grey track ring (gap at bottom centre)
+         *  – coloured progress arc covering only `level / 10` of that same
+         *    track (level 1 = a short sliver, level 10 = the whole ring)
+         *  – always off-white level number in the centre (never tier-coloured)
          */
         function renderSkillBadge(level) {
             const l = parseInt(level);
             if (!l || l < 1 || l > 10) return '';
-            const color   = SKILL_COLORS[l] || '#D6D2CE';
-            const r       = 15;                          // outer badge radius → 30×30 px
-            const size    = r * 2;
+            const color    = SKILL_COLORS[l] || '#D6D2CE';
+            const r        = 15;                          // outer badge radius → 30×30 px
+            const size     = r * 2;
             const cx = r, cy = r;
-            const lineW   = +(Math.max(2.5, r * 0.17)).toFixed(2);   // ≈ 2.55
-            const arcR    = +(r - lineW / 2).toFixed(2);             // ≈ 12.73
-            const circ    = 2 * Math.PI * arcR;
-            const arcLen  = +((300 / 360) * circ).toFixed(2);
-            const gapLen  = +(circ - arcLen).toFixed(2);
-            const fs      = Math.round(r * 0.82);                     // ≈ 12 px
+            const lineW    = +(Math.max(2.5, r * 0.17)).toFixed(2);   // ≈ 2.55
+            const arcR     = +(r - lineW / 2).toFixed(2);             // ≈ 12.73
+            const circ     = 2 * Math.PI * arcR;
+            const trackLen = +((300 / 360) * circ).toFixed(2);
+            const gapLen   = +(circ - trackLen).toFixed(2);
+            const progLen  = +((l / 10) * trackLen).toFixed(2);
+            const fs       = Math.round(r * 0.82);                     // ≈ 12 px
             return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="skill-badge" aria-label="Skill level ${l} of 10">`
                 + `<circle cx="${cx}" cy="${cy}" r="${r}" fill="rgba(10,10,16,0.55)"/>`
                 + `<circle cx="${cx}" cy="${cy}" r="${arcR}" fill="none"`
+                +  ` stroke="${SKILL_TRACK_COLOR}" stroke-width="${lineW}" stroke-linecap="round"`
+                +  ` stroke-dasharray="${trackLen} ${gapLen}" transform="rotate(120,${cx},${cy})"/>`
+                + `<circle cx="${cx}" cy="${cy}" r="${arcR}" fill="none"`
                 +  ` stroke="${color}" stroke-width="${lineW}" stroke-linecap="round"`
-                +  ` stroke-dasharray="${arcLen} ${gapLen}" transform="rotate(120,${cx},${cy})"/>`
+                +  ` stroke-dasharray="${progLen} ${circ}" transform="rotate(120,${cx},${cy})"/>`
                 + `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"`
-                +  ` fill="${color}" font-family="Inter,sans-serif" font-size="${fs}" font-weight="bold">${l}</text>`
+                +  ` fill="#F1F1F1" font-family="Inter,sans-serif" font-size="${fs}" font-weight="bold">${l}</text>`
                 + `</svg>`;
         }
 

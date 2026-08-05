@@ -745,19 +745,21 @@ async function generateMatchImage(matchInfo) {
 }
 
 // ── FACEIT skill level colours ────────────────────────────────────────────────
-// Colours match the web app's skill-bar segments exactly:
-//   sl-1…3 → grey  sl-4…6 → green  sl-7…8 → gold  sl-9 → orange  sl-10 → brand orange
+// Matches FACEIT's own current skill-level gauge colour bands (verified live via
+// Playwright against faceit.com's player stats page, 2026-08-05) and must stay
+// identical to the SKILL_COLORS map in public/index.html:
+//   sl-1 → off-white  sl-2…3 → green  sl-4…7 → gold  sl-8…9 → orange  sl-10 → red
 const SKILL_COLOR = {
-    1:  '#888888',
-    2:  '#888888',
-    3:  '#888888',
-    4:  '#5FBA53',
-    5:  '#5FBA53',
-    6:  '#5FBA53',
-    7:  '#FFC400',
-    8:  '#FFC400',
-    9:  '#FF8500',
-    10: '#FF5500',
+    1:  '#F1F1F1',
+    2:  '#05FF00',
+    3:  '#05FF00',
+    4:  '#FFC700',
+    5:  '#FFC700',
+    6:  '#FFC700',
+    7:  '#FFC700',
+    8:  '#FF4B00',
+    9:  '#FF4B00',
+    10: '#EF0000',
 };
 
 const DEG = Math.PI / 180;
@@ -767,8 +769,11 @@ function skillColor(level) {
 }
 
 /**
- * Draws a FACEIT-style skill badge:
- * dark circle + coloured arc (gap at bottom) + coloured level number inside.
+ * Draws a FACEIT-style skill badge (matches FACEIT's own circular gauge icon,
+ * verified live via Playwright, 2026-08-05):
+ * dark circle + full grey track ring (gap at bottom) + a coloured progress
+ * arc covering only `level / 10` of that same track (level 1 = a short
+ * sliver, level 10 = the whole ring) + an always off-white level number.
  * @param {CanvasRenderingContext2D} ctx
  * @param {number|null} level  1-10
  * @param {number} cx   centre X
@@ -776,9 +781,14 @@ function skillColor(level) {
  * @param {number} r    outer radius of the badge circle
  */
 function drawSkillBadge(ctx, level, cx, cy, r) {
-    const color   = skillColor(level);
-    const lineW   = Math.max(2.5, r * 0.17);
-    const arcR    = r - lineW / 2;
+    const color     = skillColor(level);
+    const lineW     = Math.max(2.5, r * 0.17);
+    const arcR      = r - lineW / 2;
+    // Track spans 300° with a 60° gap centred at the bottom (120°→60° the
+    // long way round, clockwise, through the top — same geometry as before).
+    const arcStart  = 120 * DEG;
+    const arcSpan   = 300 * DEG;
+    const fraction  = level != null ? Math.min(1, Math.max(0, level / 10)) : 0;
 
     ctx.save();
 
@@ -789,16 +799,27 @@ function drawSkillBadge(ctx, level, cx, cy, r) {
     ctx.fillStyle = 'rgba(10,10,16,0.55)';
     ctx.fill();
 
-    // Coloured arc — gap at bottom centre (60°→120°, clockwise = 300° arc)
+    // Full grey track ring — always the complete 300° span, regardless of level.
     ctx.beginPath();
-    ctx.arc(cx, cy, arcR, 120 * DEG, 60 * DEG, false);
-    ctx.strokeStyle = color;
+    ctx.arc(cx, cy, arcR, arcStart, arcStart + arcSpan, false);
+    ctx.strokeStyle = COLOR.separator;
     ctx.lineWidth   = lineW;
     ctx.lineCap     = 'round';
     ctx.stroke();
 
-    // Level number
-    ctx.fillStyle    = color;
+    // Coloured progress arc — only `level / 10` of the track's span is drawn,
+    // starting from the same point as the track (grows clockwise with level).
+    if (fraction > 0) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, arcR, arcStart, arcStart + arcSpan * fraction, false);
+        ctx.strokeStyle = color;
+        ctx.lineWidth   = lineW;
+        ctx.lineCap     = 'round';
+        ctx.stroke();
+    }
+
+    // Level number — always off-white, never tier-coloured (matches FACEIT).
+    ctx.fillStyle    = level != null ? COLOR.text : COLOR.subtext;
     ctx.font         = `bold ${Math.round(r * 0.82)}px ${FONT_FAMILY}`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';

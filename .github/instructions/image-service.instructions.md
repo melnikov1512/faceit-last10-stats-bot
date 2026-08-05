@@ -28,7 +28,7 @@ The colour palette **must** match the web-app CSS variables exactly. Never hardc
 | `positiveBorder` / `positiveTint` | `rgba(110,231,135,0.55)` / `rgba(110,231,135,0.14)` | Glass chip border/fill for positive signed values. |
 | `negativeBorder` / `negativeTint` | `rgba(255,107,107,0.55)` / `rgba(255,107,107,0.14)` | Glass chip border/fill for negative signed values. |
 
-Skill-badge colours (levels 1–10, `SKILL_COLOR`) are unchanged by the glassmorphism redesign and must still match the web-app skill-bar segments exactly (grey / green / gold / orange / brand-orange). If you change one side, update the other.
+Skill-badge colours (levels 1–10, `SKILL_COLOR`) must still match the web-app's `SKILL_COLORS` exactly — if you change one side, update the other. As of 2026-08-05 these bands match FACEIT's own current skill-level gauge icon (verified live via Playwright): `1` off-white `#F1F1F1`, `2-3` green `#05FF00`, `4-7` gold `#FFC700`, `8-9` orange `#FF4B00`, `10` red `#EF0000`. The badge itself is a circular gauge: a translucent dark disc, a full 300°-span grey track ring (`COLOR.separator` / `--divider`, gap at bottom), and a coloured progress arc covering only `level / 10` of that same track (level 1 = a short sliver, level 10 = the whole 300° span) — the level number is always rendered off-white, never tier-coloured. See `drawSkillBadge()` in `imageService.js` and `renderSkillBadge()` in `public/index.html`.
 
 ## Glassmorphism Panel Technique
 
