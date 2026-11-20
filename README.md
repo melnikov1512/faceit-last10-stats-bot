@@ -131,6 +131,8 @@ One-time setup in the [FACEIT Developer Portal → App Studio](https://developer
 ## Project structure
 
 ```
+.agents/skills/                       # Project skills discoverable by Codex
+.codex/                               # Project subagent roles and configuration
 index.js                              # Entry point; exports telegramBot for GCF
 src/
   app.js                              # Express app setup and routes
