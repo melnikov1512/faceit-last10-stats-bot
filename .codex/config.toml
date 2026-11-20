@@ -1,0 +1,28 @@
+[agents.gem-browser-tester]
+description = "E2E browser testing, UI/UX validation, visual regression, Playwright automation. Use when the user asks to test UI, run browser tests, verify visual appearance, check responsive design, or automate E2E scenarios. Triggers: 'test UI', 'browser test', 'E2E', 'visual regression', 'Playwright', 'responsive', 'click through', 'automate browser'."
+config_file = "agents/gem-browser-tester.toml"
+
+[agents.gem-critic]
+description = "Challenges assumptions, finds edge cases, spots over-engineering and logic gaps."
+config_file = "agents/gem-critic.toml"
+
+[agents.gem-debugger]
+description = "Root-cause analysis, stack trace diagnosis, regression bisection, error reproduction. Use when the user asks to debug, diagnose, find root cause, trace errors, or investigate failures. Never implements fixes. Triggers: 'debug', 'diagnose', 'root cause', 'why is this failing', 'trace error', 'bisect', 'regression'."
+config_file = "agents/gem-debugger.toml"
+
+[agents.gem-designer]
+description = "UI/UX design specialist — layouts, themes, color schemes, design systems, accessibility."
+config_file = "agents/gem-designer.toml"
+
+[agents.gem-devops]
+description = "Infrastructure deployment, CI/CD pipelines, container management."
+config_file = "agents/gem-devops.toml"
+
+[agents.gem-researcher]
+description = "Codebase exploration — patterns, dependencies, architecture discovery."
+config_file = "agents/gem-researcher.toml"
+
+[agents.gem-reviewer]
+description = "Security auditing, code review, OWASP scanning, secrets/PII detection, PRD compliance verification. Use when the user asks to review, audit, check security, validate, or verify compliance. Never modifies code. Triggers: 'review', 'audit', 'check security', 'validate', 'verify', 'compliance', 'OWASP', 'secrets'."
+config_file = "agents/gem-reviewer.toml"
+
