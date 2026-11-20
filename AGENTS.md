@@ -1,243 +1,56 @@
-# AGENTS.md - Faceit Last 10 Stats Bot
+# AGENTS.md — FACEIT Last 10 Stats Bot
 
-## AI Agent Rules
+## Working rules
 
-> These rules are mandatory and must be followed in every session.
+- Prefer built-in tools, then MCP tools, then ecosystem CLIs. Use custom scripts as a last resort.
+- Do not commit or push without an explicit request. Verify URLs before presenting them as live.
+- Write code comments and project documentation in English. Save explicitly requested plans as `docs/plans/<plan-name>/<plan-name>.md`.
+- Update this file when a working rule, key runtime contract, or primary entry point changes. Check [README.md](README.md) when changing configuration, workflows, scripts, or project structure.
+- Write Node.js scripts in CommonJS, use `node:` for built-in modules, and prefer `parseArgs` for command-line arguments.
+- Keep credentials in local `.env` or the deployed runtime environment. Keep real credentials out of `config.json` and version control.
+- User requests and higher-priority instructions govern implementation and approvals.
 
-1. **Tool priority order.** When solving a task, prefer tools in this order:
-   1. Built-in tools (grep, glob, view, edit, create, bash, sql, etc.)
-   2. MCP servers (GitHub MCP, etc.)
-   3. Ecosystem CLI tools (`npm`, `git`, `gcloud`, etc.)
-   4. Custom scripts — use only as a last resort when built-in tools cannot accomplish the task.
+## Project map
 
-2. **Keep AGENTS.md up to date.** After making any changes to the codebase (new files, renamed files, changed architecture, new commands, new env vars, changed workflows, etc.) — update the relevant sections of this file before finishing the task.
+Node.js 20 Telegram bot for Counter-Strike 2. It uses Express, FACEIT Data API v4, and Firestore in Native Mode. [README.md](README.md) covers setup, bot commands, environment variables, npm scripts, routes, and deployment.
 
-## Codex Configuration
+| Area | Entry points |
+| --- | --- |
+| Runtime | `index.js` exports `telegramBot` for Cloud Functions, starts Express when run directly, and initializes the Telegram bot username and command menu. Routes live in `src/app.js`. |
+| Telegram commands | `src/commands.js` defines the commands, `src/handlers/webhookHandler.js` accepts Telegram updates at `POST /`, and `src/handlers/commandHandler.js` implements the commands. |
+| FACEIT events | `src/handlers/faceitWebhookHandler.js` accepts `POST /webhook/faceit`. `src/services/subscriptionService.js` dispatches match notifications through `src/services/telegramService.js`. |
+| Storage | `src/services/storageService.js` manages tracked players, subscriptions, active matches, and notification deduplication in Firestore. |
+| Stats and cards | `src/services/faceitService.js` fetches stats and ELO. `src/services/ratingEstimator.js` estimates Rating. `src/services/imageService.js` renders PNG cards. `src/services/statsCache.js` caches command images. |
+| Mini App | `public/index.html` is served at `/app`. `src/handlers/apiHandler.js` serves `GET /api/active-matches` and `GET /api/match`, with active-match discovery in `src/services/matchService.js`. |
+| Configuration | `src/config.js` loads environment variables and defaults from `config.json`. Tracked players are managed per chat through bot commands. |
 
-- `.codex/config.toml` registers seven project subagent roles: `gem-browser-tester`, `gem-critic`, `gem-debugger`, `gem-designer`, `gem-devops`, `gem-researcher`, and `gem-reviewer`. Their instructions are in `.codex/agents/`. Delegation depends on the host's available tools and rules; project configuration requires a trusted project.
-- `.agents/skills/` contains three project skills: `github-issues` (including its supporting references), `grill-me-code`, and `refactor-plan`. Start a new Codex session after changing skills so the catalog can refresh.
-- Do not commit or push without an explicit request. Write code comments and project documentation in English. Verify URLs before presenting them as live. Save explicitly requested plans in `docs/plans/<plan-name>/<plan-name>.md`. User requests and higher-priority instructions govern implementation and approvals.
-- When changing configuration, workflows, scripts, or project structure, check whether `README.md` needs updating. For Node.js scripts, follow existing CommonJS conventions, use `node:` for built-in modules, and prefer `parseArgs` for command-line arguments.
+## Runtime contracts
 
-## Project Overview
-This is a Node.js Telegram bot designed to run as a **Google Cloud Function** (HTTP Trigger). It fetches **FACEIT Data API v4** statistics for **Counter-Strike 2 (CS2)** and communicates with Telegram via **Webhook Replies**.
+### Telegram commands
 
-The stats fetching module is located in `src/services/faceitService.js` and is integrated into the main bot logic.
+- Register commands in `src/commands.js`. It is the source for dispatch and Telegram's command menu. For a required argument, set both `prompt` and `placeholder` if the handler returns `force_reply`.
+- Use Telegram webhook replies with HTML parse mode for text command responses. A handler that sends its own response through the Bot API returns `null` so the webhook can acknowledge it with an empty HTTP 200. Acknowledge ignored updates and handled errors with HTTP 200.
+- Use ForceReply in private chats and a usage hint in groups. For Mini App buttons, use `web_app` in private chats and a Telegram deep link in groups.
+- Check the per-chat player limit before making the FACEIT lookup for `/add_player`. Keep tracking and notification subscriptions in sync on add and remove.
+- Check the `/stats` and `/activity` image cache before Firestore or FACEIT calls. Invalidate both cache prefixes (`<chatId>:` and `activity:<chatId>:`) when the roster changes or Telegram chat cleanup runs.
 
-## Architecture & Core logic
-- **Entry Point**: `index.js` loads the app from `src/app.js` and starts the server. Exports `telegramBot` for Google Cloud Functions; listens on `PORT` (default 8080) when run directly. Calls `fetchBotUsername()` and `setMyCommands()` at startup (both from `telegramService.js`).
-- **Webhook Pattern**: The bot uses the [Webhook Reply](https://core.telegram.org/bots/api#making-requests-when-getting-updates) mechanism.
-  - **Logic**: Handled in `src/handlers/webhookHandler.js`. Uses **HTML** parse mode for responses.
-  - **Example**:
-    ```javascript
-    const replyPayload = {
-        method: 'sendMessage',
-        chat_id: chatId,
-        text: '...',
-        parse_mode: 'HTML'
-    };
-    res.json(replyPayload);
-    ```
-- **Stats Module**: `src/services/faceitService.js`. Calculates average stats (estimated Rating, ADR, K/D, kills, ELO, ELO change) from the last N matches.
-    - **Additional export**: `getActivityStats(apiKey, players, days)` — fetches match history for each player via `GET /players/{id}/history?game=cs2&from=…&to=…` (up to 200 matches per player, 2 pages of 100 in parallel), together with the player's avatar via `getPlayerInfoById`. Returns `Array<{ nickname, matchCount, wins, losses, winRate, totalDurationSec, avgDurationSec, avatar_url }>` sorted by `matchCount` descending. Used by `handleActivity` in `commandHandler.js`.
-- **Stats Cache Module**: `src/services/statsCache.js`. In-memory TTL cache for `/stats` and `/activity` PNG buffers.
-    - `getCached(key) → Buffer|null` — returns cached buffer if not expired, else `null`.
-    - `setCached(key, data, ttlMs = 5 * 60 * 1000)` — stores buffer with TTL (default 5 min).
-    - `invalidate(prefix)` — removes all entries whose key starts with `prefix`. Used by `handleAddPlayer`/`handleRemovePlayer` with `"${chatId}:"` (stats) and `"activity:${chatId}:"` (activity) to flush all variants.
-    - `_reset()` — clears entire cache (tests only).
-    - Cache key formats: `${chatId}:${matchesCount}` for `/stats`; `activity:${chatId}:${days}` for `/activity`. Checked **before** Firestore and FACEIT API calls — on hit, both are skipped entirely.
-- **Image Module**: `src/services/imageService.js`. Generates FACEIT-styled PNGs using `@napi-rs/canvas`. Exports:
-    - `generateStatsImage(leaderboard, matchesCount) → Promise<Buffer>` — stats leaderboard card (720px wide). Shows a 7-column layout with a `Rating` column (`~1.24` / `—`) whenever at least one player has a non-null `estimated_rating`, otherwise falls back to the 6-column layout without it. The footer adds a `"~ = estimated Rating"` note whenever the Rating column is shown.
-    - `generateMatchImage(matchInfo) → Promise<Buffer>` — match notification card (580px wide). Shows team names, ELO, win probability pill, and a roster row (avatar directly left of nickname, up to 5 players per row) per team; tracked players get an accent avatar ring + accent nickname colour, and the team block gets an orange left accent bar if it has any tracked player. `matchInfo`: `{ team1, team2, competition, region, bestOf }` where each team is `{ name, elo, winProb, trackedPlayers[], players? }` — `players` (optional): `Array<{ nickname, avatar_url, tracked }>`, up to 5 rendered; falls back to a plain comma-separated `trackedPlayers` line if omitted. Avatars are loaded in parallel per team via `loadTeamAvatars()`.
-    - `generateMatchResultImage(data) → Promise<Buffer>` — single-player match result card (540px wide). Shows WIN/LOSE badge with round score (e.g. `16 : 12`), player avatar + nickname + skill level, current ELO + ELO delta, and per-match stats (Kills, Assists, Rating, K/D, ADR, HS%). Used by finish notifications for <2000 ELO players. `data`: `{ nickname, avatar_url, skillLevel, currentElo, eloChange, kills, deaths, assists, kd, adr, hsPercent, result, competition, map, teamScore, opponentScore, rating? }`. Rating is `data.rating` if provided, else estimated internally via `computeMatchRating()` (wraps `estimateMatchRating` from `ratingEstimator.js`, using rounds = `teamScore + opponentScore`); rendered as a `~X.XX` glass chip, with a `"~ = estimated Rating"` footer note shown whenever a rating value is available. Thin public wrapper around `_drawMatchResultCard`.
-    - `generateMatchResultsSummaryImage(playersData) → Promise<Buffer>` — renders a **compact glass table** (720px wide), one row per player, instead of stacking full result cards (replaces the old vertically-stacked-cards layout — too bulky for 2+ players). Single shared header (title + competition/map, taken from `playersData[0]`) followed by one row per player: avatar + skill badge + nickname, WIN/LOSE chip + round score, Rating chip, K/D chip, ADR, HS%, ELO, ±ELO chip. Used by `handleMatchFinishedEvent` to send one aggregated image per chat. All avatars are loaded in parallel, then the whole table is drawn directly onto one shared canvas — no intermediate PNG encode/decode, only one `toBuffer()` call regardless of player count. Rating column uses the same `computeMatchRating()` fallback as `generateMatchResultImage`.
-    - `_drawMatchResultCard(ctx, data, offsetY, avatar)` — private. Draws one single-player result card (with Rating column) at the given Y offset on an existing canvas context. Used by `generateMatchResultImage` (the summary table has its own `drawSummaryHeader`/`drawSummaryRow`/`drawSummaryFooter` helpers, not this one).
-    - `computeMatchRating({ kills, deaths, assists, adr, teamScore, opponentScore, doubleKills, tripleKills, quadroKills, pentaKills, mvps, entryWins, clutch1v1Wins, clutch1v2Wins }) → number|null` — private. Estimates a per-match Rating for result cards (rounds = teamScore + opponentScore) via `ratingEstimator.estimateMatchRating`, forwarding the enrichment fields when present on `data`; returns `null` if either score is missing.
-    - `loadTeamAvatars(players) → Promise<Array<Image|null>>` — private. Loads up to 5 roster avatar images in parallel for one `generateMatchImage` team block; missing/broken avatars resolve to `null` (placeholder letter).
-    - `_loadAvatar(url)` — private. Safely loads an avatar image; returns `null` on any error.
-    - `generatePlayerCard(player, action) → Promise<Buffer>` — add/remove confirmation card (500px wide).
-    - `generatePlayersListImage(players) → Promise<Buffer>` — tracked players list card (540px wide), sorted by ELO descending.
-    - `generateActivityImage(activityData, days) → Promise<Buffer>` — activity leaderboard card (720px wide). Columns: Player | Matches | Wins | Win% | Time. Shows the real player avatar when available, falling back to a letter placeholder otherwise, win rate colour-coded green/red, time formatted as "NhMmin" (Latin abbreviations — bundled Inter WOFF2 is Latin-only). `activityData`: `Array<{ nickname, matchCount, wins, losses, winRate, totalDurationSec, avgDurationSec, avatar_url }>` sorted by matchCount descending. Empty data shows "No data".
-    - **Fonts**: bundled Inter WOFF2 in `src/assets/fonts/` registered via `GlobalFonts` — identical rendering on macOS and Linux.
-    - **Design tokens**: cards use a glassmorphism palette in `imageService.js`, aligned with `public/index.html` CSS variables — `pageBg:#0A0A10`, `bg:rgba(255,255,255,0.07)`, `headerBg:rgba(255,255,255,0.10)`, `separator:rgba(255,255,255,0.18)`, `positive:#6EE787`, `negative:#FF6B6B`, `neutral:#B8B4C8`, `gold:#FFC94D`, `accent:#FF7A33`, plus mesh blob colours `meshOrange`/`meshTeal`/`meshViolet` and chip tint/border colours `positiveBorder`/`positiveTint`/`negativeBorder`/`negativeTint`/`neutralBorder`/`neutralTint`/`goldBorder`/`goldTint`. Skill-badge colours (1–10) match the web-app's `SKILL_COLORS` exactly and, as of 2026-08-05, match FACEIT's own current skill-level gauge icon (verified live via Playwright): `1` off-white `#F1F1F1`, `2-3` green `#05FF00`, `4-7` gold `#FFC700`, `8-9` orange `#FF4B00`, `10` red `#EF0000`. The badge (`drawSkillBadge()`/`renderSkillBadge()`) renders as a circular gauge — translucent dark disc + full 300°-span grey track ring (gap at bottom) + a coloured progress arc covering only `level / 10` of that track (level 1 = a short sliver, level 10 = the whole span) + an always off-white level number (never tier-coloured). Every card is painted over a shared colourful "mesh" backdrop and rendered as frosted-glass panels with pill-shaped signed-value chips — see `drawMesh`/`drawGlassPanel`/`drawGlassChip`/`renderAsGlassCard` in `imageService.js`; `public/index.html` was updated in parallel to visually match this palette.
-    - **Rating grading (4 tiers)**: `getRatingGrade(rating)` in `imageService.js` maps `estimated_rating`/per-match `rating` to FACEIT's 4-grade scale — `red` (`<0.9`), `grey` "average" (`0.9`–`1.3` inclusive), `green` (`1.3`–`1.8` exclusive), `gold` "elite" (`>=1.8`) — adapted (not copied) from faceit.com's own colour grading. `drawGlassChip(ctx, text, x, y, variant, align)` accepts either a legacy boolean (`true`/`false` → green/red, still used by K/D, ELO-delta, Win% and WIN/LOSE chips) or one of these 4 grade strings via the `CHIP_VARIANTS` lookup — used everywhere a Rating value is rendered as a chip: `drawLeaderboardRow` (`/stats`), `_drawMatchResultCard`'s stat row, and the match-result summary card's per-player row. `public/index.html` mirrors this with its own `ratingGrade(rating)` + `ratingChip(text, rating)` helpers and `.stats-chip-neutral`/`.stats-chip-gold` CSS classes (alongside the existing `.stats-chip-good`/`.stats-chip-bad`).
-    - **Faceit API**: Uses v4 `/players?nickname={nick}&game=cs2`, `/players/{id}/games/cs2/stats?limit={N}`, and the unofficial ELO timeline endpoint `https://api.faceit.com/stats/v1/stats/time/users/{playerId}/games/cs2`. Match details fetched via `/matches/{matchId}` as fallback.
-    - **ELO API Note**: The unofficial ELO timeline endpoint is fetched using Node.js native `fetch` (not axios) to bypass Cloudflare protection.
-    - **Batching**: Processes player lookups in chunks of 10 to manage API rate limits. For each player, `getPlayerInfoById`, game stats, and ELO timeline are fetched in parallel (3 concurrent requests per player).
-    - **Estimated Rating**: `estimateAverageRating(statsArray)` maps each official FACEIT v4 per-match stats object (`Kills`, `Deaths`, `Assists`, `Rounds`, `ADR`, plus `Double/Triple/Quadro/Penta Kills` and `MVPs`) through `estimateMatchRating()` from `ratingEstimator.js`, then averages the non-null per-match estimates. The result is exposed on each leaderboard row as `estimated_rating` (`number|null`). This is an HLTV Rating 2.0 approximation enriched with heuristic multi-kill/MVP bonuses and rescaled to FACEIT's ~1.1 baseline — still not FACEIT's or HLTV's real proprietary Rating (see `ratingEstimator.js`).
-    - **Output**: Sorted by `estimated_rating` descending, with ADR descending as tiebreak/fallback when estimated ratings are missing or equal. Unit-tested in `tests/unit/getLeaderboardStats.test.js`.
-    - **Sandbox note**: the `api.faceit.com` stats domain used for the unofficial ELO timeline may return HTTP 403 from some sandbox/dev egress IPs even when the code is correct; the official `open.faceit.com` Data API v4 remains unaffected. Verify unofficial-endpoint behavior from the deployed environment when debugging ELO timeline issues.
-    - Real FACEIT Rating fetching was removed as permanently broken behind Cloudflare; a separate later phase will add a local estimated rating instead.
-    - **Active Match API**: `enrichMatchWithRosterElos(apiKey, match)` — adds `faceit_elo` and `skill_level` to every roster player. Single-match lookup is handled by `GET /api/match` in `apiHandler.js`. Single-match lookup is handled by `GET /api/match` in `apiHandler.js`.
-    - **Additional exports used externally**: `getMatchStats(apiKey, matchId)` — fetches raw match stats `{ rounds: [...] }` from `GET /matches/{id}/stats`; returns `null` for ongoing matches (404). `extractPlayerMatchStats(matchStats, playerId)` — extracts a single player's stats from the raw stats response (returns `{ kills, deaths, assists, kd, adr, hsPercent, result, map, teamScore, opponentScore, doubleKills, tripleKills, quadroKills, pentaKills, mvps, entryWins, clutch1v1Wins, clutch1v2Wins }`; `teamScore`/`opponentScore` are the final round scores for the player's team and opponent; the enrichment fields are consumed by `ratingEstimator.estimateMatchRating`'s heuristic bonuses — `entryWins`/`clutch1v1Wins`/`clutch1v2Wins` are only present on this single-match endpoint, not the player-stats one). `getLastMatchEloChange(playerId)` — returns the ELO delta for the player's most recent match from the unofficial timeline. All are used by `subscriptionService.js` and/or `apiHandler.js`.
-    - **Axios client**: Single module-level instance (`getApiClient`) — created once and reused across all FACEIT API calls. Configured with `timeout: 15000` ms.
-- **Web App**: `public/index.html`. Telegram Mini App that displays active matches for subscribed players in a chat.
-    - Served at `GET /app` (static middleware from `public/`). Not at root `/`.
-    - Reads `?chatId=` and optional `?matchId=` URL params (or Telegram `start_param` `{chatId}_{matchId}`).
-    - Fetches `GET /api/active-matches?chatId=…` and renders each match with full team rosters, ELO badges, skill level icons, live score (if `ONGOING`), and tracked-player highlights.
-    - Tracked players shown in green; teams colour-coded blue/red.
-    - Shows a 🔄 Refresh button.
-    - **Match stats table** (`renderStatsTable`): columns are `Игрок | Rating | K | D | A | ADR | K/D | HS%` — `Rating` is the first stat column (right after the player cell), mirroring the `/stats` leaderboard PNG column order. `Rating` values render via `ratingChip()` using the 4-grade `ratingGrade()` scale (red/grey/green/gold — see Image Module's Rating grading note); `K/D` still uses the plain 2-colour `.stats-chip-good`/`.stats-chip-bad` (`>= 1.0`) convention. Both are pill-shaped `.stats-chip` spans (tinted background + coloured border + coloured text) to stay visually consistent with the glass chips (`drawGlassChip`) used in the generated PNG cards from `imageService.js`.
-- **REST API Handler**: `src/handlers/apiHandler.js`. Serves `GET /api/active-matches?chatId=<id>` and `GET /api/match?matchId=<id>&chatId=<id>`.
-    - Active matches response: JSON `{ matches: [...] }` — one entry per unique active match.
-    - Each match includes `matchId`, `status`, `competition_name`, `region`, `best_of`, `results` (score), `mapInfo` (`{ name, image }` from voting data, nullable), `teams` (both rosters with ELO), `trackedPlayers`, `matchUrl`.
-    - Single match (`GET /api/match`): JSON `{ match: {...} }` — same shape plus `matchStats: { maps, players }` when FACEIT stats are available. `players` is keyed by `player_id` with `{ nickname, faction, kills, deaths, assists, kd, adr, hs_pct, rating, isTracked, avatar }`. `rating` (`number|null`) is an HLTV Rating 2.0 approximation via `estimateMatchRating` (`ratingEstimator.js`), enriched with multi-kill/MVP/entry/clutch bonuses accumulated across maps (`Double/Triple/Quadro/Penta Kills`, `MVPs`, `Entry Wins`, `1v1Wins`, `1v2Wins`), computed from the player's match totals and the sum of round counts across the maps they played (`f1_score + f2_score` per map, since the raw stats endpoint doesn't expose a `Rounds` field directly).
-    - `processMatchStats(statsData, faction1Id, faction2Id)` — local helper that aggregates per-player stats across maps (including per-map round totals and the rating-enrichment fields above) and extracts map scores (used by `getMatch`).
-    - Match ID sources for active-matches are delegated to `src/services/matchService.js`.
-- **Storage Module**: `src/services/storageService.js`. Manages per-chat data using Firestore.
-    - **Collections**:
-        - `chats` — Document ID = `chatId`. Structure: `{ name: "Chat Name", players: [{ id: "faceit-uuid", nickname: "s1mple" }] }`.
-        - `player_subscriptions` — Document ID = `playerId` (FACEIT GUID). Structure: `{ playerId, nickname, subscribedChats: [chatIds] }`.
-        - `sent_match_notifications` — Three dedup variants:
-            - Start: `{matchId}_{chatId}` — Fields: `matchId`, `chatId`, `playerIds[]`, `sentAt`, `expireAt` (sentAt + 7 дней, используется для нативного TTL). `playerIds` enables cross-chat match lookup via `getRecentMatchIdsForPlayers`.
-            - Finish (chat-level): `{matchId}_{chatId}_finish` — Fields: `matchId`, `chatId`, `playerIds[]`, `type: 'finish_chat'`, `sentAt`, `expireAt` (sentAt + 7 дней).
-            - Finish (per-player, legacy): `{matchId}_{chatId}_{playerId}_finish` — Fields: `matchId`, `chatId`, `playerId`, `type: 'finish'`, `sentAt`.
-            - **TTL**: Нативный Firestore TTL настроен на поле `expireAt`. Документы автоматически удаляются через 7 дней. Для (пере-)создания политики: `gcloud firestore fields ttls update expireAt --collection-group=sent_match_notifications --enable-ttl --project=<GCLOUD_PROJECT>`.
-        - `active_matches` — Document ID = `{chatId}_{matchId}`. Structure: `{ chatId, matchId, startedAt, messageId? }`. `messageId` (Telegram message_id) is stored when the start notification is sent; used by the finish handler as the reply target for the finish notification. Written when a match-start notification is sent; deleted when the match finishes/is cancelled. Functions: `storeActiveMatch`, `getActiveMatchIds`, `getActiveMatchMessageId`, `removeActiveMatch`.
-    - **`deleteChatData(chatId)`** — deletes ALL Firestore data for a chat: the `chats/{chatId}` doc, the chat's ID from every `player_subscriptions` doc's `subscribedChats` array (via `FieldValue.arrayRemove`), and all `active_matches` docs for that chat. Deliberately does **not** touch `sent_match_notifications` (already covered by the 7-day TTL). The three steps run via `Promise.allSettled` — one failing sub-step doesn't block the others (failures are logged per-step). Triggered from `subscriptionService.js` when Telegram's `sendPhoto` returns HTTP 403 (bot kicked from the chat or blocked by the user).
-    - **Deduplication (race-condition safe)**: `markNotificationSent` and `markFinishNotificationSentForChat` use Firestore `create()` (atomic) instead of `set()`. Returns `true` if the document was newly created (proceed with sending), `false` if it already existed (`ALREADY_EXISTS`, code `6` — skip silently). This prevents duplicate notifications when parallel GCF instances handle the same webhook event.
-    - **Key function**: `getRecentMatchIdsForPlayers(playerIds, sinceTs)` — searches `sent_match_notifications` (where `playerIds` array-contains a tracked player) within a 6-hour window. Used by `matchService` as a cross-chat fallback to find active matches.
-    - **Requirement**: Firestore database must be created in **Native Mode**.
-- **Subscription Module**: `src/services/subscriptionService.js`. Handles match-start and match-finish event logic triggered by FACEIT webhooks. Queries subscriptions, deduplicates notifications, and dispatches Telegram messages. Subscription management (subscribe/unsubscribe) is handled automatically by `add_player`/`remove_player` commands via `storageService.subscribeChat` / `storageService.unsubscribeChat`.
-    - **Supported Events**: `match_status_ready` (match start) and `match_status_finished` (match end).
-    - **Match Start** (`handleMatchEvent`): sends a match card image to all subscribed chats with team rosters, ELO, win probability. Builds each team's `players` array (`{ nickname, avatar_url, tracked }`, avatar taken directly from the FACEIT roster's `p.avatar` field — no extra API call) for `generateMatchImage`'s roster-avatar row. Also calls `storeActiveMatch(chatId, matchId, messageId)` — storing the Telegram `message_id` of the sent photo for use as the reply target when the finish notification is sent.
-    - **Match Finish** (`handleMatchFinishedEvent`): for each subscribed chat, fetches current ELO and match stats for all tracked players, generates an aggregated image (`generateMatchResultsSummaryImage`) and always sends it as a **new** `sendPhoto` message — it never modifies the original match-start message. Reads the stored `message_id` (via `getActiveMatchMessageId`, before `removeActiveMatch` is called) and, when known, passes it as `replyToMessageId` so the finish notification is sent as a Telegram reply to the start message; falls back to a plain (non-reply) `sendPhoto` when no `message_id` was stored. Deduplication key: `${matchId}_${chatId}_finish` (chat-level). Also calls `removeActiveMatch`.
-    - **`sendPhoto` 403 handling** (`handleSendPhotoError`, shared by both `handleMatchEvent` and `handleMatchFinishedEvent`): when `sendPhoto` throws with `error.response.status === 403` (bot kicked from the chat or blocked by the user), calls `storageService.deleteChatData(chatId)`, invalidates both stats-cache prefixes (`` `${chatId}:` `` and `` `activity:${chatId}:` `` via `statsCache.invalidate`), logs an informational message, and returns **without rethrowing** — this is now a handled/expected condition, so any trailing per-chat logic (`storeActiveMatch`, dedup marking, success log) is skipped for that chat via an early `return`. Any other error (non-403) is rethrown unchanged, preserving prior behavior.
-    - **Web App Button**: If `WEBAPP_URL` env var is set, both start and finish notifications include an inline button. **Groups** (negative chat ID + `BOT_USERNAME` set): `url` button → `https://t.me/{bot_username}?startapp={chatId}_{matchId}&mode=compact`. **Private chats**: `web_app` type button → `{WEBAPP_URL}?chatId={chatId}&matchId={matchId}`.
-    - **FACEIT Webhook Handler**: `src/handlers/faceitWebhookHandler.js` validates the `x-faceit-webhook-secret` header (**always required** — returns `403` if `FACEIT_WEBHOOK_SECRET` is not configured, `401` if the header doesn't match), responds `200` immediately, then processes the event asynchronously via `handleMatchEvent()` or `handleMatchFinishedEvent()`. The outer catch block logs a concise message (`error.message` + Telegram's `error.response.data` if present + `error.stack`) instead of dumping the raw Axios/Node error object, which contains huge/circular internal HTTP fields (`_header`, `path`, `requestOnFinish`, etc.) that would otherwise bloat Cloud Logging.
-- **Telegram Module**: `src/services/telegramService.js`. Sends messages to Telegram chats via Bot API (used for push notifications from FACEIT webhook events, not the webhook reply mechanism). Exports:
-    - `sendMessage(chatId, text, replyMarkup?, options?)` — sends text. `options.parseMode` defaults to `'Markdown'`; `options.disableWebPagePreview` defaults to `true`. On failure, logs `chatId` + Telegram's `error.response.status`/`error.response.data` (falling back to `error.message` when there's no HTTP response) before rethrowing, so the exact Telegram-provided reason (e.g. "bot was kicked from the group chat") is visible in logs.
-    - `sendPhoto(chatId, imageBuffer, caption?, replyMarkup?, replyToMessageId?)` — multipart/form-data upload; caption always uses `HTML` parse mode. When `replyToMessageId` is truthy, appends a `reply_parameters` field (`{ message_id, allow_sending_without_reply: true }`) so the sent photo is a Telegram reply to that message. **Returns** the Telegram `Message` object (contains `message_id`). On failure, logs `chatId` + Telegram's `error.response.status`/`error.response.data` (or `error.message` as fallback) before rethrowing — `subscriptionService.js` inspects the rethrown error's `error.response.status` to detect HTTP 403 (bot kicked/blocked).
-    - `fetchBotUsername()` — calls Telegram `getMe` API and stores result in `config.bot_username`. Called at startup from `index.js`.
-    - `setMyCommands()` — registers `BOT_COMMANDS` with Telegram `setMyCommands` API so the `/` menu stays up to date. Called at startup from `index.js`.
-- **Command Logic**: `src/handlers/commandHandler.js`. Handles the following commands (all defined in `src/commands.js`). Handlers that send responses directly (e.g. `sendPhoto` for `/stats`) return `null`; `webhookHandler` sends `200` without a reply body in that case.
-    - **ForceReply pattern**: When a handler needs a missing argument (e.g. `/add_player` with no nickname), it returns `{ type: 'force_reply', prompt, placeholder }`. `webhookHandler` then sends a `force_reply` markup in private chats, or a usage hint `<code>/command placeholder</code>` in groups (where bots in privacy mode can't receive plain replies). `COMMAND_LIST` entries support optional `prompt` and `placeholder` fields to enable this behaviour — add both when creating a command that requires an argument.
-    - **Player limit**: `handleAddPlayer` checks the current player count against `MAX_PLAYERS_PER_CHAT` (20) **before** calling the FACEIT API. Returns an error message if the limit is reached.
-    - **`web_app` result type**: `handleLive` returns `{ type: 'web_app', text, url, parse_mode }`. `webhookHandler` sends a `web_app` button in private chats and a `url` t.me link in groups.
-    | Command | Arguments | Purpose |
-    |---|---|---|
-    | `/stats` | `[N]` (2–100, default 10) | Show stats image for tracked players |
-    | `/activity` | `[days]` (1–365, default 30) | Show activity leaderboard (matches, wins, time) for tracked players |
-    | `/mystats` | `<nickname> [N]` | Show stats image for any player (no tracking required) |
-    | `/add_player` | `<nickname>` | Add player to tracking list and subscribe to match notifications |
-    | `/remove_player` | `<nickname>` | Remove player from tracking list and unsubscribe from notifications |
-    | `/players` | — | List all tracked players |
-    | `/help` | — | Show help message |
-    | `/live` | — | Открыть Mini App с активными матчами (требует `WEBAPP_URL`) |
+### FACEIT events and Firestore
 
-## Developer Workflows
-- **Local Development**: 
-    1. Create `.env` with `FACEIT_API_KEY=...`, `TELEGRAM_BOT_TOKEN=...`, and `GOOGLE_APPLICATION_CREDENTIALS=...` (if needed for Firestore).
-    2. Ensure `GCLOUD_PROJECT` or `GOOGLE_CLOUD_PROJECT` is set in `.env` for Firestore context.
-    3. Run `npm run dev` — starts ngrok + the server concurrently.
-    4. If the webhook URL ever changes, run `npm run set-webhook` once manually.
-- **npm Scripts**:
-    - `npm start` — Production start (`node index.js`).
-    - `npm test` — Run all tests with Jest.
-    - `npm run test:watch` — Run tests in watch mode (re-runs on file change).
-    - `npm run test:coverage` — Run tests and generate an HTML/lcov coverage report in `coverage/`.
-    - `npm run dev` — Local dev: starts ngrok tunnel and `node index.js` concurrently. **Note**: the ngrok URL is hardcoded in `package.json` as a static domain (`huddlingly-shirty-chantal.ngrok-free.dev`) — requires a paid ngrok plan or a configured free static domain. Update this URL if the ngrok domain changes.
-    - `npm run test-notify -- --nickname <nick> --chatId <chatId>` — Simulate a FACEIT **match start** notification locally (see `scripts/test-notify.js`).
-    - `npm run test-notify-finish -- --nickname <nick> --chatId <chatId>` — Simulate a FACEIT **match finish** notification locally (see `scripts/test-notify-finish.js`). Add `--force` to bypass Firestore subscriptions and send the result card directly via Telegram API. Add `--matchId <id>` to use a specific match.
-- **Request Handling**:
-  - `POST /`: Handles Telegram updates (routed to `src/handlers/webhookHandler.js`).
-  - `POST /webhook/faceit`: Handles FACEIT match events (routed to `src/handlers/faceitWebhookHandler.js`).
-  - `GET /api/active-matches?chatId=<id>`: REST endpoint for active matches (routed to `src/handlers/apiHandler.js`).
-  - `GET /app` (and `/app/*` static): Serves web app from `public/` directory.
-  - `GET /health`: Health check (returns `200 OK`). Используй этот путь в настройках GCF/Cloud Run.
-- **Environment**: Node.js 20 (specified in `package.json`).
-- **gcloud CLI (local machine)**: the system `gcloud` fails with the default Python (3.9, unsupported). Fix: `export CLOUDSDK_PYTHON=/Library/Frameworks/Python.framework/Versions/3.10/bin/python3.10` (already appended to `~/.zshrc`). Service name for log queries: `faceit-last10-stats-bot-git`. Example: `gcloud logging read 'resource.type="cloud_run_revision" resource.labels.service_name="faceit-last10-stats-bot-git" textPayload:"match-rounds"' --limit=50 --freshness=7d`.
-- **Tech Stack**:
-    - **Server**: Express.js (for HTTP handling).
-    - **HTTP Client**: Axios (for FACEIT API requests); native `fetch` for the unofficial ELO timeline API.
-    - **Database**: Google Cloud Firestore (for per-chat persistence).
-    - **Configuration**: `dotenv` (for local secrets management).
-    - **Dev tooling**: `concurrently` for running ngrok + server in parallel.
-    - **Constants**: `src/commands.js` is the single source of truth for all commands (`COMMAND_LIST`, `COMMANDS`, `BOT_COMMANDS`). `src/constants.js` holds shared runtime constants (`FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS`). `src/utils.js` holds shared utility functions (`escapeHtml`).
-- **Configuration**:
-  - `config.json` in root directory.
-    - Note: The `users` array is legacy and ignored by bot commands; use `/add_player`.
-  - `src/config.js` consolidates env vars and `config.json`. Reads:
-    | Config Key | Env Var | Purpose |
-    |---|---|---|
-    | `faceit_api_key` | `FACEIT_API_KEY` | FACEIT OpenAPI v4 Bearer token |
-    | `telegram_bot_token` | `TELEGRAM_BOT_TOKEN` | Bot token |
-    | `faceit_webhook_secret` | `FACEIT_WEBHOOK_SECRET` | FACEIT webhook validation (**required** — requests without it are rejected with 403) |
-    | `projectId` | `GCLOUD_PROJECT` or `GOOGLE_CLOUD_PROJECT` | GCP project for Firestore |
-    | `webapp_url` | `WEBAPP_URL` | Public HTTPS URL of the web app (e.g. `https://…/app`). Enables Mini App button in match notifications. |
-    | `bot_username` | `BOT_USERNAME` | Telegram bot username (without `@`). Auto-populated at startup via `fetchBotUsername()` (`getMe` API). Required for group-chat Mini App `t.me` links. |
-    | `last_matches` | — | Default N for `/stats` |
-  - **Security**: 
-    - Use `.env` file for local `FACEIT_API_KEY`, `TELEGRAM_BOT_TOKEN`, `FACEIT_WEBHOOK_SECRET`.
-    - Use Runtime Environment Variables for secrets in Google Cloud Functions.
-    - NEVER commit the actual API key to `config.json`.
+- Require `FACEIT_WEBHOOK_SECRET` for `/webhook/faceit`. Return 403 when server configuration is missing and 401 when the `x-faceit-webhook-secret` header fails validation. Acknowledge valid requests with HTTP 200 before processing ready or finished events.
+- Keep notification deduplication atomic across instances by using Firestore `create()`. The start and finish notifications each have a chat-level key. Treat an already existing document as a duplicate. New deduplication records use the `expireAt` TTL field.
+- Store the Telegram message ID with the active match when sending the start notification. Read it before deleting the active-match record on finish. Send a fresh aggregated result photo per chat as a reply when the start message ID is available.
+- On Telegram `sendPhoto` HTTP 403, clean up that chat's tracking data, subscription membership, active matches, and both image-cache prefixes. Skip the rest of that chat's notification work. Deduplication records expire through Firestore TTL. Propagate other send errors.
+- Keep webhook error logs concise. Use the error message and Telegram response details when available. Raw Axios errors can contain large or circular request objects.
+- Active-match discovery combines chat-local records with a six-hour cross-chat fallback from recent notification documents. The fallback depends on the stored `playerIds` array.
 
-## Operational Knowledge
-- **Error Handling**: Always return `200 OK` to Telegram, even for ignored messages or errors.
-- **FACEIT Webhook**: Respond `200` immediately before async processing to prevent FACEIT retries.
-- **Logging**: Use `console.log()` for structured logging compatible with Google Cloud Logging.
-- **Response Format**: Stats table uses HTML parse mode with fixed-width columns. Match notifications use Telegram Markdown.
+### Stats and Mini App
 
-## Key Files
-- `index.js`: Minimal entry point; dual-mode for local dev and Cloud Functions.
-- `src/app.js`: Express app setup with route definitions and static file serving from `public/`.
-- `src/handlers/webhookHandler.js`: Telegram webhook routing, command parsing, and response dispatch.
-- `src/handlers/faceitWebhookHandler.js`: FACEIT webhook handler (validates secret, async event processing, logs concise error info — message/Telegram response data/stack — instead of the raw error object).
-- `src/handlers/commandHandler.js`: Business logic for all bot commands.
-- `src/handlers/apiHandler.js`: REST handlers for `GET /api/active-matches` and `GET /api/match` — returns active/single match data. Shared `formatMatchResponse()` helper eliminates duplication.
-- `src/services/matchService.js`: Collects and filters active match IDs for a chat. Exports:
-    - `collectMatchIds(chatId, trackedPlayerIds)` — merges IDs from `active_matches` collection and `sent_match_notifications` cross-chat fallback (6-hour window).
-    - `fetchActiveMatchDetails(chatId, matchIds, apiKey, trackedPlayerIds)` — fetches match details, filters out finished ones (and removes them from `active_matches` storage), optionally filters by tracked player membership.
-- `src/services/imageService.js`: Generates FACEIT-styled PNGs using `@napi-rs/canvas`. See Image Module section for full export list.
-- `src/services/storageService.js`: Firestore database operations (players, subscriptions, deduplication, active matches). `deleteChatData(chatId)` removes all Firestore data for a chat (called on Telegram 403).
-- `src/services/subscriptionService.js`: Match-start and match-finish event handling and notification dispatch. `handleMatchEvent` for start (stores `message_id` via `storeActiveMatch`), `handleMatchFinishedEvent` for finish (always sends a new `sendPhoto` message, replying to the start message via `replyToMessageId` when its `message_id` is known, falling back to a plain send otherwise — the start message is never modified). Both catch `sendPhoto` HTTP 403 (bot kicked/blocked) via shared `handleSendPhotoError` — cleans up chat data + cache, skips remaining per-chat logic, doesn't rethrow; other errors still propagate.
-- `src/data/matchFinishMessages.js`: **Message pools for finish notifications.** 30 funny messages for <2000 ELO players (`getRandomFunnyMessage(nickname, currentElo)`). Includes estimated wins to level 10 (ELO left / 25).
-- `src/services/telegramService.js`: Telegram Bot API integration for push notifications. `sendMessage(chatId, text, replyMarkup?)` supports optional inline keyboards. `sendPhoto(chatId, imageBuffer, caption?, replyMarkup?, replyToMessageId?)` sends a PNG via multipart/form-data, optionally as a reply via Telegram `reply_parameters`. Both log `chatId` + Telegram's HTTP status/response data (or `error.message` fallback) on failure before rethrowing. Also exports `fetchBotUsername()` and `setMyCommands()` (both called at startup from `index.js`).
-- `src/services/ratingEstimator.js`: Pure standalone HLTV Rating 2.0 approximation helper, enriched with heuristic bonuses and rescaled toward FACEIT's own Rating baseline (research: neither FACEIT's Season 8 win-probability-added Rating nor HLTV's Rating 3.0 publish their real formula or coefficients — both require per-round telemetry, e.g. economy state/bomb status/exact kill timing, that the public FACEIT Data API v4 does not expose). Exports `DEFAULT_KAST_ESTIMATE` (= 73.0 community-average fallback because FACEIT v4 does not expose KAST), `FACEIT_BASELINE_SCALE` (= 1.1, linear calibration constant rescaling the HLTV-2.0-style output — average 1.00 — to FACEIT's stated ~1.1 baseline), and `estimateMatchRating({ kills, deaths, assists, rounds, adr, kast, doubleKills, tripleKills, quadroKills, pentaKills, mvps, entryWins, clutch1v1Wins, clutch1v2Wins })`. The extra fields (all verified live against real FACEIT API responses) add small per-round-rate bonuses as a proxy for HLTV Rating 3.0's "Multi-Kill Rating"/situational-impact concepts: multi-kill counts and `MVPs` are available on both the player-stats and match-stats endpoints; `entryWins`/`clutch1v1Wins`/`clutch1v2Wins` (`Entry Wins`/`1v1Wins`/`1v2Wins`) are **only** present on the single-match `/matches/{id}/stats` endpoint, not `/players/{id}/games/cs2/stats`. All bonus fields default to 0 and are backward compatible. Wired into `faceitService.estimateAverageRating()` (multi-kill/MVP only — leaderboard averages) and `faceitService.extractPlayerMatchStats()` → `imageService.computeMatchRating()` / `apiHandler.processMatchStats()` (full enrichment set — single-match cards/API, sourced from `/matches/{id}/stats`).
-- `src/config.js`: Configuration loader (env vars + config.json).
-- `src/commands.js`: **Единый реестр команд.** Экспортирует `COMMAND_LIST` (полные описания), `COMMANDS` (словарь строк), `BOT_COMMANDS` (для `setMyCommands` API). Единственное место для добавления новых команд.
-- `src/constants.js`: Shared runtime constants — `FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS`, `MAX_PLAYERS_PER_CHAT` (= 20).
-- `src/utils.js`: Shared utility functions — `escapeHtml`.
-- `src/utils/rateLimiter.js`: In-memory per-key rate limiter. `isRateLimited(key, limitMs) → boolean` — returns `true` if the key is within its cool-down window (and skips recording); `false` otherwise (records the call). Used by `commandHandler.js` to limit `/stats` (30 s), `/mystats` (30 s), `/players` (10 s) per chat. Stateless across GCF instances — protects warm-instance burst spam only. `_reset()` is exported for tests only.
-- `src/services/statsCache.js`: In-memory TTL cache for `/stats` and `/activity` PNG buffers. Key formats: `${chatId}:${matchesCount}` for stats; `activity:${chatId}:${days}` for activity. Default TTL: 5 min. Exports `getCached`, `setCached`, `invalidate`, `_reset`. Invalidated by `handleAddPlayer`/`handleRemovePlayer` with both `'${chatId}:'` and `'activity:${chatId}:'` to flush all cached variants on roster change.
-- `public/index.html`: Telegram Mini App web page — shows active matches with rosters, ELO, and live scores.
-- `config.json`: Master configuration file (default values; no secrets).
-- `scripts/` — development utilities:
-    - `scripts/set-webhook.js`: Registers the Telegram webhook URL (run once when URL changes, via `npm run set-webhook`).
-    - `scripts/backfill-notification-playerids.js`: One-time migration — fills missing `playerIds` field in old `sent_match_notifications` docs. Run locally: `node scripts/backfill-notification-playerids.js`.
-- `scripts/test-notify.js`: **Dev-only test script.** Simulates a `match_status_ready` FACEIT webhook for a given player. Fetches the player's most recent match from FACEIT API and POSTs it to the local bot. Usage: `npm run test-notify -- --nickname <nick> --chatId <chatId> [--port 8080] [--secret <secret>]`.
-- `ai-files/LOCAL_TESTING.md`: Local testing guide (Russian).
-- `ai-files/faceit-open-api.json`: OpenAPI 3.0 spec for FACEIT Data API v4.
+- Label calculated Rating values as estimates. Use `ratingEstimator.js` for command images, match results, and the Mini App API. Keep Rating grading consistent across `imageService.js` and `public/index.html`.
+- Preserve `chatId` and optional `matchId` handling in the Mini App, including Telegram's `start_param` format. Preserve the separation between the active-match list and single-match details endpoints.
 
-## Automated Testing
+## Development and references
 
-- **Framework**: Jest 29 (CJS, Node 20).
-- **Structure**: `tests/unit/` — pure/logic tests; `tests/integration/` — handler tests with mocked deps.
-- **Mock strategy**: external services (`faceitService`, `storageService`, `telegramService`, `imageService`, `subscriptionService`, `matchService`) are fully mocked via `jest.mock()`. No real network/DB calls.
-- **Commands**: `npm test` | `npm run test:watch` | `npm run test:coverage`.
-- **Coverage report**: `coverage/` (HTML + lcov). Core handlers sit at ~97% statement coverage; external services (FACEIT API, Firestore, Telegram, Canvas) are mocked and intentionally not unit-tested.
-
-### Test files
-
-| File | What it covers |
-|---|---|
-| `tests/unit/rateLimiter.test.js` | `isRateLimited` — first-call pass, second-call block, 0 ms expiry, independent keys, cross-chatId isolation, `_reset()` |
-| `tests/unit/statsCache.test.js` | `getCached`/`setCached`/`invalidate`/`_reset` — miss, hit, TTL expiry, stale-entry cleanup, prefix invalidation, cross-key isolation |
-| `tests/unit/utils.test.js` | `escapeHtml` — all HTML entity replacements, non-string input |
-| `tests/unit/constants.test.js` | `FINISHED_STATUSES`, `MATCH_URL_BASE`, `MATCH_STATUS_LABELS` shape |
-| `tests/unit/commands.test.js` | `COMMAND_LIST` structure, `COMMANDS` map, `BOT_COMMANDS` derivation |
-| `tests/unit/extractPlayerMatchStats.test.js` | `extractPlayerMatchStats` — null/empty input, stats extraction for both teams, `teamScore`/`opponentScore` (win/lose, missing scores, lower-case fallback, missing opponent team) |
-| `tests/unit/processMatchStats.test.js` | `processMatchStats` — null input, single map, multi-map accumulation, K/D & HS% edge cases |
-| `tests/unit/matchService.test.js` | `collectMatchIds` dedup logic; `fetchActiveMatchDetails` filtering & Firestore cleanup |
-| `tests/unit/storageService.test.js` | `markNotificationSent` / `markFinishNotificationSentForChat` — atomic `create()` contract; `expireAt` TTL field (7 days ±5 s); `getRecentMatchIdsForPlayers` regression; `storeActiveMatch` with/without `messageId`; `getActiveMatchMessageId` hit/miss/missing-field; `deleteChatData` — deletes `chats` doc, removes `chatId` from `player_subscriptions` via `arrayRemove`, deletes matching `active_matches` docs, leaves `sent_match_notifications` untouched, resilient to a single sub-step rejecting (`Promise.allSettled`) |
-| `tests/unit/telegramService.test.js` | `sendPhoto` — appends `reply_parameters` (`message_id` + `allow_sending_without_reply: true`) when `replyToMessageId` is passed; omits it when `replyToMessageId` is omitted or explicitly `null`; `sendMessage`/`sendPhoto` error logging — includes `chatId` + `error.response.status`/`error.response.data` when present, falls back to `error.message` otherwise |
-| `tests/unit/subscriptionService.test.js` | `handleMatchFinishedEvent` — sends a reply (`replyToMessageId` set) when the start message's `message_id` is known; sends a plain (non-reply) message when it isn't; reads `getActiveMatchMessageId` before `removeActiveMatch` (call ordering); both `handleMatchEvent` and `handleMatchFinishedEvent` — on `sendPhoto` HTTP 403, calls `deleteChatData` + invalidates both cache prefixes, doesn't rethrow, skips trailing per-chat logic; on non-403 `sendPhoto` errors, rethrows unchanged (regression) |
-| `tests/integration/commandHandler.test.js` | All 8 commands: happy paths, error messages, `force_reply`, `web_app` result; cache-hit skips `getLeaderboardStats`; `invalidate` called on add/remove player (both stats and activity keys) |
-| `tests/integration/webhookHandler.test.js` | Telegram webhook routing: ignoring invalid updates, `@botname` stripping, ForceReply detection, group vs private response shapes |
-| `tests/integration/faceitWebhookHandler.test.js` | Secret validation (401), unsupported events, `match_status_ready` / `match_status_finished` dispatch, fire-and-forget error swallowing |
-| `tests/unit/getLeaderboardStats.test.js` | `getLeaderboardStats` estimated-rating sort — rating DESC even when ADR alone would rank differently, multi-match rating averaging, ADR fallback when rating is `null` (missing `Rounds`), preserved nickname/ELO fields |
-| `tests/unit/ratingEstimator.test.js` | `estimateMatchRating` — null on invalid rounds, plausible range, base regression formula rescaled to `FACEIT_BASELINE_SCALE`, custom KAST, multi-kill/MVP/entry-win/clutch-win bonuses each increase rating (1v2 clutch weighted higher than 1v1), non-finite bonus fields fall back to 0; `FACEIT_BASELINE_SCALE`/`DEFAULT_KAST_ESTIMATE` exported constants |
-| `tests/integration/apiHandler.test.js` | `GET /api/active-matches` and `GET /api/match` — 400/404/500 errors, success shapes, tracked-player marking, `matchStats` enrichment without `faceitRating` |
-
-### Known bug fixed by tests
-- `src/data/matchFinishMessages.js` referenced `ELO_PER_WIN` without defining it → added `const ELO_PER_WIN = 25;` (caught by `matchFinishMessages.test.js`). **File deleted** — funny messages feature removed.
+- Run `npm test` for the Jest suite. Unit tests live in `tests/unit/` and handler integration tests in `tests/integration/`. Mock external services for automated tests. Watch and coverage scripts are listed in the README.
+- See [operations notes](docs/operations.md) for unofficial ELO endpoint diagnostics, Firestore TTL setup, and local Cloud Logging queries.
+- The Telegram HTML widget migration starts with a planned `/stats` pilot in private chats. See the [rollout plan](docs/plans/html-bubbles-migration/html-bubbles-migration.md) and [migration tracker](docs/plans/html-bubbles-migration/migration-tracker.md).
+- Project-specific agents are configured in `.codex/config.toml` and documented in `.codex/agents/`. Project skills live in `.agents/skills/`. Start a new Codex session after changing skills so the catalog can refresh.
